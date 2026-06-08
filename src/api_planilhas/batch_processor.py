@@ -32,23 +32,24 @@ def process_job(
     try:
         cnpjs = store.get_input_cnpjs(job_id)
         delay = settings.directd_batch_delay_seconds
+        fetched_once = False
 
-        for index, raw_cnpj in enumerate(cnpjs):
+        for raw_cnpj in cnpjs:
             try:
                 cnpj = validate_cnpj(raw_cnpj)
             except ValueError as exc:
                 store.record_error(job_id, _error_cnpj(raw_cnpj), str(exc))
             else:
                 try:
+                    if fetched_once and delay > 0:
+                        sleeper(delay)
                     payload = fetcher(cnpj, settings)
+                    fetched_once = True
                 except DirectDError as exc:
                     store.record_error(job_id, cnpj, str(exc))
                 else:
                     rows.append(extract_row(payload))
                     store.record_success(job_id)
-
-            if delay > 0 and index < len(cnpjs) - 1:
-                sleeper(delay)
 
         write_xlsx(store.output_path(job_id), rows)
         store.mark_completed(job_id)
