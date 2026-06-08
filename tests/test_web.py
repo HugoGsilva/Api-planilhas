@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -754,6 +755,28 @@ class BatchRoutesTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 413)
 
+    def test_limited_upload_reader_stops_after_limit(self):
+        import asyncio
+
+        from api_planilhas.web import _read_upload_with_limit
+
+        class FakeUpload:
+            def __init__(self):
+                self.calls = []
+                self._chunks = [b"abc", b"def", b"ghi"]
+
+            async def read(self, size=-1):
+                self.calls.append(size)
+                return self._chunks.pop(0) if self._chunks else b""
+
+        upload = FakeUpload()
+
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(_read_upload_with_limit(upload, max_bytes=5, chunk_size=3))
+
+        self.assertEqual(ctx.exception.status_code, 413)
+        self.assertEqual(upload.calls, [3, 3])
+
     def test_batch_upload_returns_job_id(self):
         from tests.test_xlsx_reader import build_minimal_xlsx
 
@@ -833,4 +856,39 @@ class BatchRoutesTest(unittest.TestCase):
         self.assertEqual(download_response.status_code, 409)
         self.assertEqual(missing_response.status_code, 404)
 
+    def test_batch_download_returns_completed_xlsx(self):
+        from api_planilhas.converter import write_xlsx
+        from api_planilhas.jobs import JobStore
 
+        env = {
+            "DIRECTD_TOKEN": "token",
+            "APP_BASIC_USER": "admin",
+            "APP_BASIC_PASSWORD": "secret",
+        }
+
+        with TemporaryDirectory() as temp_dir:
+            storage_dir = Path(temp_dir)
+            store = JobStore(storage_dir)
+            store.initialize()
+            job = store.create_job(["12345678000190"])
+            write_xlsx(store.output_path(job.job_id), [["EMPRESA TESTE"]])
+            store.mark_completed(job.job_id)
+
+            with patch.dict(os.environ, env, clear=True):
+                client = self._client(storage_dir)
+                response = client.get(
+                    f"/api/lotes/{job.job_id}/download",
+                    headers=_basic_header(),
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers["content-type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("attachment;", response.headers["content-disposition"])
+        self.assertIn(
+            f'importacao_oportunidades_lote_{job.job_id}.xlsx',
+            response.headers["content-disposition"],
+        )
+        self.assertGreater(len(response.content), 100)

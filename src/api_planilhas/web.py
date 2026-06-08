@@ -31,6 +31,7 @@ from .security import require_basic_auth
 
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
+UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 def _get_job_store(app: FastAPI, settings: AppSettings) -> JobStore:
@@ -43,6 +44,24 @@ def _get_job_store(app: FastAPI, settings: AppSettings) -> JobStore:
     store.cleanup_expired(settings.job_retention_hours)
     app.state.job_store = store
     return store
+
+
+async def _read_upload_with_limit(
+    file: UploadFile,
+    max_bytes: int,
+    chunk_size: int = UPLOAD_CHUNK_SIZE,
+) -> bytes:
+    content = bytearray()
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            return bytes(content)
+        if len(content) + len(chunk) > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Arquivo acima do limite permitido",
+            )
+        content.extend(chunk)
 
 
 def create_app() -> FastAPI:
@@ -89,13 +108,8 @@ def create_app() -> FastAPI:
         file: UploadFile,
         settings: AppSettings = Depends(get_settings),
     ) -> JSONResponse:
-        content = await file.read()
         max_bytes = settings.upload_max_mb * 1024 * 1024
-        if len(content) > max_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="Arquivo acima do limite permitido",
-            )
+        content = await _read_upload_with_limit(file, max_bytes)
 
         try:
             cnpjs = extract_cnpj_values(content)
