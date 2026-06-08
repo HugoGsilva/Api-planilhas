@@ -43,7 +43,7 @@ class BatchProcessorTest(unittest.TestCase):
             store = JobStore(Path(temp_dir))
             store.initialize()
             job = store.create_job(
-                ["12.345.678/0001-90", "123", "11.222.333/0001-44"]
+                ["11.222.333/0001-44", "123", "12.345.678/0001-90"]
             )
             fetched: list[str] = []
             sleeps: list[float] = []
@@ -69,11 +69,11 @@ class BatchProcessorTest(unittest.TestCase):
             self.assertEqual(
                 loaded.errors,
                 [
-                    {"cnpj": "123", "message": "CNPJ deve conter 14 digitos"},
                     {"cnpj": "11222333000144", "message": "DirectD indisponivel"},
+                    {"cnpj": "123", "message": "CNPJ deve conter 14 digitos"},
                 ],
             )
-            self.assertEqual(fetched, ["12345678000190", "11222333000144"])
+            self.assertEqual(fetched, ["11222333000144", "12345678000190"])
             self.assertEqual(sleeps, [0.25])
             self.assertTrue(store.output_path(job.job_id).exists())
 

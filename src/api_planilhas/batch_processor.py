@@ -43,8 +43,8 @@ def process_job(
                 try:
                     if fetched_once and delay > 0:
                         sleeper(delay)
-                    payload = fetcher(cnpj, settings)
                     fetched_once = True
+                    payload = fetcher(cnpj, settings)
                 except DirectDError as exc:
                     store.record_error(job_id, cnpj, str(exc))
                 else:
