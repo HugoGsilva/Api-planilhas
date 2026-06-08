@@ -1,6 +1,10 @@
 ﻿import os
+import re
+import shutil
+import subprocess
 import sys
 import unittest
+from html import unescape
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -296,7 +300,7 @@ class ConfigAndSecurityTest(unittest.TestCase):
 
 
 class HtmlFrontendTest(unittest.TestCase):
-    def test_homepage_has_frontend_controls(self):
+    def _homepage(self) -> str:
         os.environ["DIRECTD_TOKEN"] = "token-for-test"
         os.environ["APP_BASIC_USER"] = "admin"
         os.environ["APP_BASIC_PASSWORD"] = "secret"
@@ -306,20 +310,221 @@ class HtmlFrontendTest(unittest.TestCase):
             response = client.get("/", headers=_basic_header())
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('lang="pt-BR"', response.text)
-        self.assertIn("Gerar planilha", response.text)
-        self.assertIn("Baixar novamente", response.text)
-        self.assertIn("/api/planilha", response.text)
-        self.assertIn("downloadUrl", response.text)
-        self.assertIn("triggerDownload", response.text)
-        self.assertIn("filename\\*=", response.text)
-        self.assertIn("readErrorMessage", response.text)
-        self.assertIn('type="file"', response.text)
-        self.assertIn("/api/lotes", response.text)
-        self.assertIn("Consultar status", response.text)
-        self.assertIn("CNPJs com erro", response.text)
-        self.assertIn("downloadBatch", response.text)
-        self.assertNotIn("response.text()", response.text)
+        return response.text
+
+    def _script(self) -> str:
+        page = self._homepage()
+        match = re.search(r"<script>(.*?)</script>", page, flags=re.DOTALL)
+        self.assertIsNotNone(match)
+        return unescape(match.group(1))
+
+    def _run_frontend_script(self, body: str) -> str:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node nao encontrado no PATH")
+
+        script = self._script()
+        harness = f"""
+const assert = require("assert");
+const vm = require("vm");
+
+const elements = new Map();
+
+function createElement(id) {{
+  const classes = new Set(["hidden"]);
+  return {{
+    id,
+    textContent: "",
+    disabled: false,
+    files: [],
+    children: [],
+    className: "",
+    classList: {{
+      add(name) {{ classes.add(name); }},
+      remove(name) {{ classes.delete(name); }},
+      toggle(name, force) {{
+        if (force === undefined ? !classes.has(name) : force) {{
+          classes.add(name);
+        }} else {{
+          classes.delete(name);
+        }}
+      }},
+      contains(name) {{ return classes.has(name); }},
+    }},
+    addEventListener(event, handler) {{ this[`on${{event}}`] = handler; }},
+    appendChild(child) {{ this.children.push(child); return child; }},
+    removeChild(child) {{
+      this.children = this.children.filter((item) => item !== child);
+    }},
+    click() {{ this.clicked = true; }},
+  }};
+}}
+
+const document = {{
+  body: createElement("body"),
+  getElementById(id) {{
+    if (!elements.has(id)) {{
+      elements.set(id, createElement(id));
+    }}
+    return elements.get(id);
+  }},
+  createElement(tag) {{
+    const element = createElement(tag);
+    element.tagName = tag;
+    return element;
+  }},
+}};
+
+const intervalHandles = [];
+const clearedHandles = [];
+let nextHandle = 1;
+
+const context = {{
+  assert,
+  document,
+  console,
+  Error,
+  Promise,
+  URL: {{
+    createObjectURL() {{ return "blob:planilha"; }},
+    revokeObjectURL() {{}},
+  }},
+  FormData: class {{
+    constructor() {{ this.values = []; }}
+    append(name, value) {{ this.values.push([name, value]); }}
+  }},
+  setInterval(fn, delay) {{
+    const handle = nextHandle++;
+    intervalHandles.push({{ handle, fn, delay }});
+    return handle;
+  }},
+  clearInterval(handle) {{ clearedHandles.push(handle); }},
+  window: {{ location: {{ href: "" }} }},
+  fetch: null,
+}};
+
+vm.runInNewContext({script!r}, context);
+
+(async () => {{
+  const get = (id) => elements.get(id);
+  {body}
+}})().then(
+  () => console.log("ok"),
+  (error) => {{
+    console.error(error && error.stack ? error.stack : error);
+    process.exit(1);
+  }}
+);
+"""
+
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "frontend-test.js"
+            path.write_text(harness, encoding="utf-8")
+            result = subprocess.run(
+                [node, str(path)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        if result.returncode != 0:
+            self.fail(result.stderr or result.stdout)
+        return result.stdout
+
+    def test_homepage_has_frontend_controls(self):
+        page = self._homepage()
+
+        self.assertIn('lang="pt-BR"', page)
+        self.assertIn("Gerar planilha", page)
+        self.assertIn("Baixar novamente", page)
+        self.assertIn("/api/planilha", page)
+        self.assertIn("downloadUrl", page)
+        self.assertIn("triggerDownload", page)
+        self.assertIn("filename\\*=", page)
+        self.assertIn("readErrorMessage", page)
+        self.assertIn('type="file"', page)
+        self.assertIn("/api/lotes", page)
+        self.assertIn("Consultar status", page)
+        self.assertIn("CNPJs com erro", page)
+        self.assertIn("downloadBatch", page)
+        self.assertNotIn("response.text()", page)
+
+    def test_batch_frontend_polls_once_and_stops_on_completed(self):
+        self._run_frontend_script(
+            """
+get("batchFile").files = [{ name: "entrada.xlsx" }];
+const calls = [];
+let statusCalls = 0;
+context.fetch = async (url, options = {}) => {
+  calls.push({ url, method: options.method || "GET" });
+  if (url === "/api/lotes") {
+    return { ok: true, json: async () => ({ job_id: "job-123" }) };
+  }
+  if (url === "/api/lotes/job-123") {
+    statusCalls += 1;
+    return {
+      ok: true,
+      json: async () => ({
+        status: statusCalls === 1 ? "processing" : "completed",
+        processed: statusCalls === 1 ? 1 : 2,
+        total: 2,
+        success: statusCalls === 1 ? 1 : 2,
+        errors: [],
+        download_ready: statusCalls > 1,
+      }),
+    };
+  }
+  throw new Error(`URL inesperada: ${url}`);
+};
+
+await context.submitBatch({ preventDefault() {} });
+
+assert.deepStrictEqual(
+  calls.map((call) => [call.method, call.url]),
+  [["POST", "/api/lotes"], ["GET", "/api/lotes/job-123"]]
+);
+assert.strictEqual(intervalHandles.length, 1);
+assert.strictEqual(intervalHandles[0].delay, 3000);
+assert.strictEqual(get("manualStatusButton").classList.contains("hidden"), false);
+assert.strictEqual(get("batchDownloadButton").classList.contains("hidden"), true);
+
+await intervalHandles[0].fn();
+
+assert.strictEqual(clearedHandles.includes(intervalHandles[0].handle), true);
+assert.strictEqual(get("batchDownloadButton").classList.contains("hidden"), false);
+assert.match(get("batchStatus").textContent, /completed/);
+"""
+        )
+
+    def test_batch_frontend_uses_json_error_detail_and_download_url(self):
+        self._run_frontend_script(
+            """
+get("batchFile").files = [{ name: "entrada.xlsx" }];
+context.fetch = async (url) => {
+  assert.strictEqual(url, "/api/lotes");
+  return {
+    ok: false,
+    json: async () => ({
+      detail: "nao tem cnpj na sua planilha adicione uma coluna CNPJ e os cnpj em baixo",
+    }),
+  };
+};
+
+await context.submitBatch({ preventDefault() {} });
+
+assert.match(get("batchStatus").textContent, /nao tem cnpj/);
+assert.strictEqual(get("batchStatus").className, "status error");
+
+context.fetch = async (url) => {
+  assert.strictEqual(url, "/api/lotes");
+  return { ok: true, json: async () => ({ job_id: "job-456" }) };
+};
+await context.submitBatch({ preventDefault() {} });
+context.downloadBatch();
+
+assert.strictEqual(context.window.location.href, "/api/lotes/job-456/download");
+"""
+        )
 
 
 class DirectDClientTest(unittest.TestCase):
