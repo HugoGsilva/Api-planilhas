@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Form, HTTPException, status
 from fastapi.responses import HTMLResponse, Response
 
+from api_planilhas.cnpj import normalize_cnpj, validate_cnpj
 from api_planilhas.config import AppSettings, get_settings
 from api_planilhas.converter import build_xlsx_bytes, extract_row
 from api_planilhas.directd import DirectDError, fetch_cnpj
@@ -14,17 +15,6 @@ from .security import require_basic_auth
 
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
-
-
-def normalize_cnpj(cnpj: str) -> str:
-    return "".join(ch for ch in (cnpj or "") if ch.isdigit())
-
-
-def validate_cnpj(cnpj: str) -> str:
-    value = normalize_cnpj(cnpj)
-    if len(value) != 14:
-        raise ValueError("CNPJ deve conter 14 digitos")
-    return value
 
 
 def create_app() -> FastAPI:
