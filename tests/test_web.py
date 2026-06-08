@@ -11,7 +11,15 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from api_planilhas.config import DEFAULT_DIRECTD_BASE_URL, DEFAULT_DIRECTD_TIMEOUT_SECONDS, get_settings
+from api_planilhas.config import (
+    DEFAULT_DIRECTD_BASE_URL,
+    DEFAULT_DIRECTD_TIMEOUT_SECONDS,
+    DEFAULT_DIRECTD_BATCH_DELAY_SECONDS,
+    DEFAULT_JOB_RETENTION_HOURS,
+    DEFAULT_JOB_STORAGE_DIR,
+    DEFAULT_UPLOAD_MAX_MB,
+    get_settings,
+)
 from api_planilhas.web import create_app, validate_cnpj, normalize_cnpj
 
 
@@ -54,6 +62,48 @@ class ConfigAndSecurityTest(unittest.TestCase):
         self.assertEqual(settings.basic_password, "secret")
         self.assertEqual(settings.directd_base_url, DEFAULT_DIRECTD_BASE_URL)
         self.assertEqual(settings.directd_timeout_seconds, DEFAULT_DIRECTD_TIMEOUT_SECONDS)
+
+    def test_get_settings_reads_batch_defaults(self):
+        os.environ["DIRECTD_TOKEN"] = "token-for-test"
+        os.environ["APP_BASIC_USER"] = "admin"
+        os.environ["APP_BASIC_PASSWORD"] = "secret"
+
+        settings = get_settings()
+
+        self.assertEqual(settings.job_storage_dir, DEFAULT_JOB_STORAGE_DIR)
+        self.assertEqual(settings.job_retention_hours, DEFAULT_JOB_RETENTION_HOURS)
+        self.assertEqual(settings.upload_max_mb, DEFAULT_UPLOAD_MAX_MB)
+        self.assertEqual(
+            settings.directd_batch_delay_seconds,
+            DEFAULT_DIRECTD_BATCH_DELAY_SECONDS,
+        )
+
+    def test_get_settings_reads_batch_env_overrides(self):
+        os.environ["DIRECTD_TOKEN"] = "token-for-test"
+        os.environ["APP_BASIC_USER"] = "admin"
+        os.environ["APP_BASIC_PASSWORD"] = "secret"
+        os.environ["JOB_STORAGE_DIR"] = "custom/jobs"
+        os.environ["JOB_RETENTION_HOURS"] = "72"
+        os.environ["UPLOAD_MAX_MB"] = "250"
+        os.environ["DIRECTD_BATCH_DELAY_SECONDS"] = "0.5"
+
+        settings = get_settings()
+
+        self.assertEqual(settings.job_storage_dir, Path("custom/jobs"))
+        self.assertEqual(settings.job_retention_hours, 72.0)
+        self.assertEqual(settings.upload_max_mb, 250)
+        self.assertEqual(settings.directd_batch_delay_seconds, 0.5)
+
+    def test_get_settings_rejects_invalid_upload_max_mb(self):
+        os.environ["DIRECTD_TOKEN"] = "token-for-test"
+        os.environ["APP_BASIC_USER"] = "admin"
+        os.environ["APP_BASIC_PASSWORD"] = "secret"
+        os.environ["UPLOAD_MAX_MB"] = "0"
+
+        with self.assertRaises(RuntimeError) as ctx:
+            get_settings()
+
+        self.assertIn("UPLOAD_MAX_MB", str(ctx.exception))
 
     def test_get_settings_reads_directd_base_url_from_env(self):
         os.environ["DIRECTD_TOKEN"] = "token-for-test"
