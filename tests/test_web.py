@@ -2,6 +2,7 @@
 import sys
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -637,5 +638,199 @@ class PlanilhaRouteTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
         self.assertIn("Falha DirectD", response.text)
+
+
+class BatchRoutesTest(unittest.TestCase):
+    def _settings(self, storage_dir: Path, upload_max_mb: int = 100):
+        from api_planilhas.config import AppSettings
+
+        return AppSettings(
+            directd_token="token",
+            basic_user="admin",
+            basic_password="secret",
+            directd_base_url="https://example.test",
+            job_storage_dir=storage_dir,
+            upload_max_mb=upload_max_mb,
+        )
+
+    def _client(self, storage_dir: Path, upload_max_mb: int = 100) -> TestClient:
+        from api_planilhas.config import get_settings as config_get_settings
+
+        app = create_app()
+        app.dependency_overrides[config_get_settings] = (
+            lambda: self._settings(storage_dir, upload_max_mb)
+        )
+        return TestClient(app)
+
+    def test_batch_upload_requires_basic_auth(self):
+        env = {
+            "DIRECTD_TOKEN": "token",
+            "APP_BASIC_USER": "admin",
+            "APP_BASIC_PASSWORD": "secret",
+        }
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(os.environ, env, clear=True):
+                response = self._client(Path(temp_dir)).post("/api/lotes")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_batch_upload_rejects_missing_cnpj_column(self):
+        from tests.test_xlsx_reader import build_minimal_xlsx
+
+        env = {
+            "DIRECTD_TOKEN": "token",
+            "APP_BASIC_USER": "admin",
+            "APP_BASIC_PASSWORD": "secret",
+        }
+        content = build_minimal_xlsx([["Nome"], ["Empresa"]])
+
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(os.environ, env, clear=True):
+                response = self._client(Path(temp_dir)).post(
+                    "/api/lotes",
+                    files={
+                        "file": (
+                            "entrada.xlsx",
+                            content,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+                    },
+                    headers=_basic_header(),
+                )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            "nao tem cnpj na sua planilha adicione uma coluna CNPJ e os cnpj em baixo",
+            response.text,
+        )
+
+    def test_batch_upload_rejects_invalid_xlsx(self):
+        env = {
+            "DIRECTD_TOKEN": "token",
+            "APP_BASIC_USER": "admin",
+            "APP_BASIC_PASSWORD": "secret",
+        }
+
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(os.environ, env, clear=True):
+                response = self._client(Path(temp_dir)).post(
+                    "/api/lotes",
+                    files={
+                        "file": (
+                            "entrada.xlsx",
+                            b"not-an-xlsx",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+                    },
+                    headers=_basic_header(),
+                )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Planilha XLSX invalida", response.text)
+
+    def test_batch_upload_rejects_file_above_configured_limit(self):
+        from tests.test_xlsx_reader import build_minimal_xlsx
+
+        env = {
+            "DIRECTD_TOKEN": "token",
+            "APP_BASIC_USER": "admin",
+            "APP_BASIC_PASSWORD": "secret",
+        }
+        content = build_minimal_xlsx([["CNPJ"], ["12.345.678/0001-90"]])
+
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(os.environ, env, clear=True):
+                response = self._client(Path(temp_dir), upload_max_mb=0).post(
+                    "/api/lotes",
+                    files={
+                        "file": (
+                            "entrada.xlsx",
+                            content,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+                    },
+                    headers=_basic_header(),
+                )
+
+        self.assertEqual(response.status_code, 413)
+
+    def test_batch_upload_returns_job_id(self):
+        from tests.test_xlsx_reader import build_minimal_xlsx
+
+        env = {
+            "DIRECTD_TOKEN": "token",
+            "APP_BASIC_USER": "admin",
+            "APP_BASIC_PASSWORD": "secret",
+        }
+        content = build_minimal_xlsx([["CNPJ"], ["12.345.678/0001-90"]])
+
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(os.environ, env, clear=True):
+                with patch("api_planilhas.web.process_job"):
+                    response = self._client(Path(temp_dir)).post(
+                        "/api/lotes",
+                        files={
+                            "file": (
+                                "entrada.xlsx",
+                                content,
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            )
+                        },
+                        headers=_basic_header(),
+                    )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertIn("job_id", response.json())
+
+    def test_batch_status_and_download_for_created_job(self):
+        from tests.test_xlsx_reader import build_minimal_xlsx
+
+        env = {
+            "DIRECTD_TOKEN": "token",
+            "APP_BASIC_USER": "admin",
+            "APP_BASIC_PASSWORD": "secret",
+        }
+        content = build_minimal_xlsx([["CNPJ"], ["12.345.678/0001-90"]])
+
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(os.environ, env, clear=True):
+                with patch("api_planilhas.web.process_job"):
+                    client = self._client(Path(temp_dir))
+                    create_response = client.post(
+                        "/api/lotes",
+                        files={
+                            "file": (
+                                "entrada.xlsx",
+                                content,
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            )
+                        },
+                        headers=_basic_header(),
+                    )
+                    job_id = create_response.json()["job_id"]
+
+                    status_response = client.get(
+                        f"/api/lotes/{job_id}",
+                        headers=_basic_header(),
+                    )
+                    download_response = client.get(
+                        f"/api/lotes/{job_id}/download",
+                        headers=_basic_header(),
+                    )
+                    missing_response = client.get(
+                        "/api/lotes/nao-existe/download",
+                        headers=_basic_header(),
+                    )
+
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(status_response.json()["job_id"], job_id)
+        self.assertEqual(status_response.json()["status"], "queued")
+        self.assertEqual(status_response.json()["total"], 1)
+        self.assertEqual(status_response.json()["processed"], 0)
+        self.assertEqual(status_response.json()["success"], 0)
+        self.assertEqual(status_response.json()["errors"], [])
+        self.assertFalse(status_response.json()["download_ready"])
+        self.assertEqual(download_response.status_code, 409)
+        self.assertEqual(missing_response.status_code, 404)
 
 
