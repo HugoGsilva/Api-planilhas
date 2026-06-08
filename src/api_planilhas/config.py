@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,7 +45,7 @@ def _optional_positive_float(name: str, default: float) -> float:
         parsed = float(value)
     except ValueError as exc:
         raise RuntimeError(f"{name} must be a positive number") from exc
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         raise RuntimeError(f"{name} must be a positive number")
     return parsed
 
@@ -70,14 +71,19 @@ def _optional_non_negative_float(name: str, default: float) -> float:
         parsed = float(value)
     except ValueError as exc:
         raise RuntimeError(f"{name} must be a non-negative number") from exc
-    if parsed < 0:
+    if not math.isfinite(parsed) or parsed < 0:
         raise RuntimeError(f"{name} must be a non-negative number")
     return parsed
 
 
 def _optional_path(name: str, default: Path) -> Path:
     value = os.getenv(name, "").strip()
-    return Path(value) if value else default
+    if not value:
+        return default
+    path = Path(value)
+    if path.is_absolute() or path.drive or path.root or ".." in path.parts:
+        raise RuntimeError(f"{name} must be a relative path without parent traversal")
+    return path
 
 
 def _https_url(name: str, default: str) -> str:

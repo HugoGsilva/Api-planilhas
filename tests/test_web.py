@@ -105,6 +105,78 @@ class ConfigAndSecurityTest(unittest.TestCase):
 
         self.assertIn("UPLOAD_MAX_MB", str(ctx.exception))
 
+    def test_get_settings_rejects_zero_job_retention_hours(self):
+        os.environ["DIRECTD_TOKEN"] = "token-for-test"
+        os.environ["APP_BASIC_USER"] = "admin"
+        os.environ["APP_BASIC_PASSWORD"] = "secret"
+        os.environ["JOB_RETENTION_HOURS"] = "0"
+
+        with self.assertRaises(RuntimeError) as ctx:
+            get_settings()
+
+        self.assertIn("JOB_RETENTION_HOURS", str(ctx.exception))
+
+    def test_get_settings_rejects_negative_directd_batch_delay_seconds(self):
+        os.environ["DIRECTD_TOKEN"] = "token-for-test"
+        os.environ["APP_BASIC_USER"] = "admin"
+        os.environ["APP_BASIC_PASSWORD"] = "secret"
+        os.environ["DIRECTD_BATCH_DELAY_SECONDS"] = "-1"
+
+        with self.assertRaises(RuntimeError) as ctx:
+            get_settings()
+
+        self.assertIn("DIRECTD_BATCH_DELAY_SECONDS", str(ctx.exception))
+
+    def test_get_settings_rejects_non_finite_job_retention_hours(self):
+        for value in ("nan", "inf"):
+            with self.subTest(value=value):
+                os.environ["DIRECTD_TOKEN"] = "token-for-test"
+                os.environ["APP_BASIC_USER"] = "admin"
+                os.environ["APP_BASIC_PASSWORD"] = "secret"
+                os.environ["JOB_RETENTION_HOURS"] = value
+
+                with self.assertRaises(RuntimeError) as ctx:
+                    get_settings()
+
+                self.assertIn("JOB_RETENTION_HOURS", str(ctx.exception))
+                os.environ.clear()
+
+    def test_get_settings_rejects_non_finite_directd_batch_delay_seconds(self):
+        for value in ("nan", "inf"):
+            with self.subTest(value=value):
+                os.environ["DIRECTD_TOKEN"] = "token-for-test"
+                os.environ["APP_BASIC_USER"] = "admin"
+                os.environ["APP_BASIC_PASSWORD"] = "secret"
+                os.environ["DIRECTD_BATCH_DELAY_SECONDS"] = value
+
+                with self.assertRaises(RuntimeError) as ctx:
+                    get_settings()
+
+                self.assertIn("DIRECTD_BATCH_DELAY_SECONDS", str(ctx.exception))
+                os.environ.clear()
+
+    def test_get_settings_rejects_parent_job_storage_dir(self):
+        os.environ["DIRECTD_TOKEN"] = "token-for-test"
+        os.environ["APP_BASIC_USER"] = "admin"
+        os.environ["APP_BASIC_PASSWORD"] = "secret"
+        os.environ["JOB_STORAGE_DIR"] = "..\\outside"
+
+        with self.assertRaises(RuntimeError) as ctx:
+            get_settings()
+
+        self.assertIn("JOB_STORAGE_DIR", str(ctx.exception))
+
+    def test_get_settings_rejects_absolute_job_storage_dir(self):
+        os.environ["DIRECTD_TOKEN"] = "token-for-test"
+        os.environ["APP_BASIC_USER"] = "admin"
+        os.environ["APP_BASIC_PASSWORD"] = "secret"
+        os.environ["JOB_STORAGE_DIR"] = "C:\\"
+
+        with self.assertRaises(RuntimeError) as ctx:
+            get_settings()
+
+        self.assertIn("JOB_STORAGE_DIR", str(ctx.exception))
+
     def test_get_settings_reads_directd_base_url_from_env(self):
         os.environ["DIRECTD_TOKEN"] = "token-for-test"
         os.environ["APP_BASIC_USER"] = "admin"
