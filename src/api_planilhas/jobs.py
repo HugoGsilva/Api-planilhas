@@ -38,6 +38,10 @@ class JobNotFoundError(KeyError):
     pass
 
 
+class JobInputError(ValueError):
+    pass
+
+
 class JobStore:
     def __init__(self, storage_dir: Path):
         self.storage_dir = Path(storage_dir)
@@ -112,9 +116,12 @@ class JobStore:
         path = self.input_path(job_id)
         if not path.exists():
             raise JobNotFoundError(job_id)
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise JobInputError(f"input.json invalido para job {job_id}") from exc
         if not isinstance(data, list):
-            return []
+            raise JobInputError(f"input.json invalido para job {job_id}")
         return [str(item) for item in data]
 
     def get_job(self, job_id: str) -> JobSnapshot:
@@ -141,18 +148,10 @@ class JobStore:
         )
 
     def record_error(self, job_id: str, cnpj: str, message: str) -> None:
-        row = self._load_row(job_id)
-        errors = self._decode_errors(row["errors_json"])
-        errors.append({"cnpj": cnpj, "message": message})
-        self._execute_existing(
-            """
-            UPDATE jobs
-            SET processed = processed + 1,
-                errors_json = ?
-            WHERE job_id = ?
-            """,
-            (json.dumps(errors, ensure_ascii=True), self._safe_job_id(job_id)),
+        self._append_error(
             job_id,
+            {"cnpj": cnpj, "message": message},
+            increment_processed=True,
         )
 
     def mark_completed(self, job_id: str) -> None:
@@ -168,23 +167,11 @@ class JobStore:
         )
 
     def mark_failed(self, job_id: str, message: str) -> None:
-        row = self._load_row(job_id)
-        errors = self._decode_errors(row["errors_json"])
-        errors.append({"cnpj": "", "message": message})
-        self._execute_existing(
-            """
-            UPDATE jobs
-            SET status = 'failed',
-                errors_json = ?,
-                finished_at = ?
-            WHERE job_id = ?
-            """,
-            (
-                json.dumps(errors, ensure_ascii=True),
-                self._now(),
-                self._safe_job_id(job_id),
-            ),
+        self._append_error(
             job_id,
+            {"cnpj": "", "message": message},
+            status="failed",
+            finished_at=self._now(),
         )
 
     def cleanup_expired(self, retention_hours: float) -> None:
@@ -199,14 +186,58 @@ class JobStore:
                 """,
                 (cutoff_text,),
             ).fetchall()
-            job_ids = [row["job_id"] for row in rows]
-            connection.executemany(
-                "DELETE FROM jobs WHERE job_id = ?",
-                [(job_id,) for job_id in job_ids],
-            )
+        for row in rows:
+            job_id = row["job_id"]
+            job_dir = self._job_dir(job_id)
+            if job_dir.exists():
+                shutil.rmtree(job_dir)
+            with self._connect() as connection:
+                connection.execute(
+                    "DELETE FROM jobs WHERE job_id = ?",
+                    (job_id,),
+                )
 
-        for job_id in job_ids:
-            shutil.rmtree(self._job_dir(job_id), ignore_errors=True)
+    def _append_error(
+        self,
+        job_id: str,
+        error: dict[str, str],
+        increment_processed: bool = False,
+        status: str | None = None,
+        finished_at: str | None = None,
+    ) -> None:
+        safe_job_id = self._safe_job_id(job_id)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT errors_json FROM jobs WHERE job_id = ?",
+                (safe_job_id,),
+            ).fetchone()
+            if row is None:
+                raise JobNotFoundError(job_id)
+            errors = self._decode_errors(row["errors_json"])
+            errors.append(error)
+            errors_json = json.dumps(errors, ensure_ascii=True)
+            if status is None:
+                connection.execute(
+                    """
+                    UPDATE jobs
+                    SET processed = processed + ?,
+                        errors_json = ?
+                    WHERE job_id = ?
+                    """,
+                    (1 if increment_processed else 0, errors_json, safe_job_id),
+                )
+                return
+            connection.execute(
+                """
+                UPDATE jobs
+                SET status = ?,
+                    errors_json = ?,
+                    finished_at = ?
+                WHERE job_id = ?
+                """,
+                (status, errors_json, finished_at, safe_job_id),
+            )
 
     def _load_row(self, job_id: str) -> sqlite3.Row:
         safe_job_id = self._safe_job_id(job_id)
