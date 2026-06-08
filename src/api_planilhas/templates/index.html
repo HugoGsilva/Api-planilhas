@@ -93,6 +93,27 @@
       >
         Baixar novamente
       </button>
+
+      <hr />
+
+      <h2>Gerar planilha em lote</h2>
+      <form id="batchForm">
+        <label for="batchFile">Planilha XLSX com coluna CNPJ</label>
+        <input id="batchFile" name="file" type="file" accept=".xlsx" required />
+        <button type="submit" id="batchButton">Enviar lote</button>
+      </form>
+
+      <p id="batchStatus" class="status" aria-live="polite"></p>
+      <button id="batchDownloadButton" type="button" class="hidden">
+        Baixar planilha do lote
+      </button>
+      <button id="manualStatusButton" type="button" class="hidden">
+        Consultar status
+      </button>
+      <section id="batchErrorsSection" class="hidden">
+        <h3>CNPJs com erro</h3>
+        <ul id="batchErrors"></ul>
+      </section>
     </main>
 
     <script>
@@ -101,8 +122,18 @@
       const statusElement = document.getElementById("status");
       const generateButton = document.getElementById("generateButton");
       const downloadButton = document.getElementById("downloadButton");
+      const batchForm = document.getElementById("batchForm");
+      const batchFileInput = document.getElementById("batchFile");
+      const batchButton = document.getElementById("batchButton");
+      const batchStatus = document.getElementById("batchStatus");
+      const batchDownloadButton = document.getElementById("batchDownloadButton");
+      const batchErrorsSection = document.getElementById("batchErrorsSection");
+      const batchErrors = document.getElementById("batchErrors");
+      const manualStatusButton = document.getElementById("manualStatusButton");
       let downloadUrl = "";
       let downloadFilename = "importacao_oportunidade.xlsx";
+      let currentBatchJobId = "";
+      let batchPollTimer = 0;
 
       const API_URL = "/api/planilha";
 
@@ -118,6 +149,28 @@
 
       function setDownloadButtonVisible(isVisible) {
         downloadButton.classList.toggle("hidden", !isVisible);
+      }
+
+      function setBatchStatus(message, type = "") {
+        batchStatus.textContent = message || "";
+        batchStatus.className = `status ${type}`;
+      }
+
+      function renderBatchErrors(errors) {
+        batchErrors.textContent = "";
+        batchErrorsSection.classList.toggle("hidden", !errors || errors.length === 0);
+        for (const item of errors || []) {
+          const li = document.createElement("li");
+          li.textContent = `${item.cnpj || "sem cnpj"} - ${item.message || "Erro"}`;
+          batchErrors.appendChild(li);
+        }
+      }
+
+      function stopBatchPolling() {
+        if (batchPollTimer) {
+          clearInterval(batchPollTimer);
+          batchPollTimer = 0;
+        }
       }
 
       function parseFilename(contentDisposition) {
@@ -174,6 +227,92 @@
         }
       }
 
+      async function refreshBatchStatus() {
+        if (!currentBatchJobId) {
+          return null;
+        }
+
+        try {
+          const response = await fetch(`/api/lotes/${currentBatchJobId}`);
+          if (!response.ok) {
+            throw new Error(await readErrorMessage(response));
+          }
+
+          const payload = await response.json();
+          renderBatchErrors(payload.errors);
+          setBatchStatus(
+            `Status: ${payload.status}. Processados: ${payload.processed}/${payload.total}. Sucessos: ${payload.success}.`,
+            payload.status === "completed" ? "success" : ""
+          );
+          batchDownloadButton.classList.toggle("hidden", !payload.download_ready);
+          manualStatusButton.classList.remove("hidden");
+
+          if (payload.status === "completed" || payload.status === "failed") {
+            stopBatchPolling();
+          }
+          return payload;
+        } catch (error) {
+          setBatchStatus(error.message || "Nao foi possivel consultar o lote.", "error");
+          return null;
+        }
+      }
+
+      function downloadBatch() {
+        if (!currentBatchJobId) {
+          return;
+        }
+
+        window.location.href = `/api/lotes/${currentBatchJobId}/download`;
+      }
+
+      async function submitBatch(event) {
+        event.preventDefault();
+        const file = batchFileInput.files[0];
+
+        if (!file) {
+          setBatchStatus("Selecione uma planilha XLSX.", "error");
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+        batchButton.disabled = true;
+        batchDownloadButton.classList.add("hidden");
+        manualStatusButton.classList.add("hidden");
+        setBatchStatus("Enviando lote...");
+        renderBatchErrors([]);
+        stopBatchPolling();
+
+        try {
+          const response = await fetch("/api/lotes", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!response.ok) {
+            throw new Error(await readErrorMessage(response));
+          }
+
+          const payload = await response.json();
+          currentBatchJobId = payload.job_id;
+          setBatchStatus("Lote recebido. Processando...");
+          manualStatusButton.classList.remove("hidden");
+          const statusPayload = await refreshBatchStatus();
+          if (
+            statusPayload &&
+            statusPayload.status !== "completed" &&
+            statusPayload.status !== "failed"
+          ) {
+            batchPollTimer = setInterval(refreshBatchStatus, 3000);
+          }
+        } catch (error) {
+          currentBatchJobId = "";
+          setBatchStatus(error.message || "Erro ao enviar lote.", "error");
+        } finally {
+          batchButton.disabled = false;
+        }
+      }
+
       async function requestPlanilha(event) {
         event.preventDefault();
         const cnpj = cnpjInput.value.trim();
@@ -216,6 +355,9 @@
 
       form.addEventListener("submit", requestPlanilha);
       downloadButton.addEventListener("click", triggerDownload);
+      batchForm.addEventListener("submit", submitBatch);
+      batchDownloadButton.addEventListener("click", downloadBatch);
+      manualStatusButton.addEventListener("click", refreshBatchStatus);
     </script>
   </body>
 </html>

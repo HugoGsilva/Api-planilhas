@@ -314,6 +314,11 @@ class HtmlFrontendTest(unittest.TestCase):
         self.assertIn("triggerDownload", response.text)
         self.assertIn("filename\\*=", response.text)
         self.assertIn("readErrorMessage", response.text)
+        self.assertIn('type="file"', response.text)
+        self.assertIn("/api/lotes", response.text)
+        self.assertIn("Consultar status", response.text)
+        self.assertIn("CNPJs com erro", response.text)
+        self.assertIn("downloadBatch", response.text)
         self.assertNotIn("response.text()", response.text)
 
 
