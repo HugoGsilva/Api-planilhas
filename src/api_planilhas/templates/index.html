@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gerador de Planilha</title>
+    <style>
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: #f7f7fb;
+        color: #1f2937;
+      }
+
+      .container {
+        max-width: 680px;
+        margin: 0 auto;
+        background: #ffffff;
+        border: 1px solid #dde2ed;
+        border-radius: 8px;
+        padding: 24px;
+      }
+
+      h1 {
+        margin-top: 0;
+        font-size: 1.5rem;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+      }
+
+      input,
+      button {
+        width: 100%;
+        font-size: 1rem;
+        padding: 10px;
+        border-radius: 6px;
+      }
+
+      input {
+        border: 1px solid #c5c8d5;
+        box-sizing: border-box;
+      }
+
+      button {
+        margin-top: 12px;
+        border: 1px solid #2563eb;
+        background: #2563eb;
+        color: #ffffff;
+      }
+
+      button[disabled] {
+        opacity: 0.7;
+      }
+
+      .status {
+        margin-top: 12px;
+        min-height: 24px;
+      }
+
+      .error {
+        color: #b91c1c;
+      }
+
+      .success {
+        color: #065f46;
+      }
+
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <h1>Gerar planilha</h1>
+      <form id="planilhaForm" autocomplete="off">
+        <label for="cnpj">CNPJ</label>
+        <input id="cnpj" name="cnpj" required />
+        <button type="submit" id="generateButton">Gerar planilha</button>
+      </form>
+
+      <p id="status" class="status" aria-live="polite"></p>
+      <button
+        id="downloadButton"
+        type="button"
+        class="hidden"
+        aria-live="polite"
+      >
+        Baixar novamente
+      </button>
+    </main>
+
+    <script>
+      const form = document.getElementById("planilhaForm");
+      const cnpjInput = document.getElementById("cnpj");
+      const statusElement = document.getElementById("status");
+      const generateButton = document.getElementById("generateButton");
+      const downloadButton = document.getElementById("downloadButton");
+      let downloadUrl = "";
+      let downloadFilename = "importacao_oportunidade.xlsx";
+
+      const API_URL = "/api/planilha";
+
+      function setStatus(message, type = "") {
+        statusElement.textContent = message || "";
+        statusElement.className = `status ${type}`;
+      }
+
+      function setLoading(isLoading) {
+        generateButton.disabled = isLoading;
+        generateButton.textContent = isLoading ? "Gerando..." : "Gerar planilha";
+      }
+
+      function setDownloadButtonVisible(isVisible) {
+        downloadButton.classList.toggle("hidden", !isVisible);
+      }
+
+      function parseFilename(contentDisposition) {
+        if (!contentDisposition) {
+          return downloadFilename;
+        }
+
+        const filenameStar = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition);
+        if (filenameStar) {
+          try {
+            return decodeURIComponent(filenameStar[1]);
+          } catch (_error) {
+            return filenameStar[1];
+          }
+        }
+
+        const filename = /filename="([^"]+)"/i.exec(contentDisposition);
+        if (filename) {
+          return filename[1];
+        }
+
+        return downloadFilename;
+      }
+
+      async function readErrorMessage(response) {
+        try {
+          const payload = await response.json();
+          if (payload && typeof payload.detail === "string") {
+            return payload.detail;
+          }
+        } catch (_error) {
+          return "Nao foi possivel gerar a planilha.";
+        }
+
+        return "Nao foi possivel gerar a planilha.";
+      }
+
+      function triggerDownload() {
+        if (!downloadUrl) {
+          return;
+        }
+
+        const anchor = document.createElement("a");
+        anchor.href = downloadUrl;
+        anchor.download = downloadFilename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+      }
+
+      function clearPreviousDownloadUrl() {
+        if (downloadUrl) {
+          URL.revokeObjectURL(downloadUrl);
+        }
+      }
+
+      async function requestPlanilha(event) {
+        event.preventDefault();
+        const cnpj = cnpjInput.value.trim();
+
+        if (!cnpj) {
+          setStatus("Informe um CNPJ antes de gerar.", "error");
+          return;
+        }
+
+        setLoading(true);
+        setStatus("Gerando planilha...");
+        setDownloadButtonVisible(false);
+
+        try {
+          const response = await fetch(API_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({ cnpj }),
+          });
+
+          if (!response.ok) {
+            throw new Error(await readErrorMessage(response));
+          }
+
+          const blob = await response.blob();
+          clearPreviousDownloadUrl();
+          downloadUrl = URL.createObjectURL(blob);
+          downloadFilename = parseFilename(response.headers.get("Content-Disposition"));
+          triggerDownload();
+          setStatus("Planilha gerada com sucesso.", "success");
+          setDownloadButtonVisible(true);
+        } catch (error) {
+          setStatus(error.message || "Erro ao gerar planilha.", "error");
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      form.addEventListener("submit", requestPlanilha);
+      downloadButton.addEventListener("click", triggerDownload);
+    </script>
+  </body>
+</html>
