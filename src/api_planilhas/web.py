@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from api_planilhas.batch_processor import process_job
 from api_planilhas.cnpj import normalize_cnpj, validate_cnpj
 from api_planilhas.config import AppSettings, get_settings
-from api_planilhas.converter import build_xlsx_bytes, extract_row
+from api_planilhas.converter import build_xlsx_bytes, extract_rows
 from api_planilhas.directd import DirectDError, fetch_cnpj
 from api_planilhas.jobs import JobNotFoundError, JobStore
 from api_planilhas.xlsx_reader import (
@@ -93,7 +93,7 @@ def create_app() -> FastAPI:
                 detail=str(exc),
             ) from exc
 
-        content = build_xlsx_bytes([extract_row(payload)])
+        content = build_xlsx_bytes(extract_rows(payload))
         filename = f"importacao_oportunidade_{normalized}.xlsx"
         return Response(
             content=content,

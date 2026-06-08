@@ -6,7 +6,7 @@ from typing import Any
 
 from api_planilhas.cnpj import normalize_cnpj, validate_cnpj
 from api_planilhas.config import AppSettings
-from api_planilhas.converter import extract_row, write_xlsx
+from api_planilhas.converter import extract_rows, write_xlsx
 from api_planilhas.directd import DirectDError, fetch_cnpj
 from api_planilhas.jobs import JobStore
 
@@ -48,7 +48,7 @@ def process_job(
                 except DirectDError as exc:
                     store.record_error(job_id, cnpj, str(exc))
                 else:
-                    rows.append(extract_row(payload))
+                    rows.extend(extract_rows(payload))
                     store.record_success(job_id)
 
         write_xlsx(store.output_path(job_id), rows)

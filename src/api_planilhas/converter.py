@@ -60,8 +60,8 @@ class ConversionResult:
 
     processed_files: quantidade de arquivos JSON processados com sucesso.
     Apenas arquivos com JSON válido (raiz do payload do tipo dict) contam.
-    generated_rows: quantidade de linhas geradas no XLSX (mesma quantidade de
-    arquivos processados com sucesso).
+    generated_rows: quantidade de linhas geradas no XLSX. Um arquivo pode gerar
+    mais de uma linha quando houver mais de um socio.
     """
 
     processed_files: int
@@ -95,6 +95,13 @@ def _value(data: dict[str, Any], key: str) -> Any:
     return "" if value is None else value
 
 
+def _dict_items(data: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    items = data.get(key)
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
 def _cnae(data: dict[str, Any]) -> str:
     codigo = _value(data, "cnaeCodigo")
     descricao = _value(data, "cnaeDescricao")
@@ -108,18 +115,14 @@ def _cnae(data: dict[str, Any]) -> str:
     return ""
 
 
-def extract_row(payload: Any) -> list[Any]:
-    data = _retorno(_as_dict(payload))
-
+def _extract_row_for_socio(data: dict[str, Any], socio: dict[str, Any]) -> list[Any]:
     telefone_1 = _list_item(data, "telefones", 0)
     telefone_2 = _list_item(data, "telefones", 1)
     email_1 = _list_item(data, "emails", 0)
     email_2 = _list_item(data, "emails", 1)
     endereco = _list_item(data, "enderecos", 0)
-    socio = _list_item(data, "socios", 0)
-
     return [
-        _value(data, "razaoSocial"),
+        _value(socio, "nome"),
         _value(telefone_1, "telefoneComDDD"),
         _value(telefone_2, "telefoneComDDD"),
         _value(email_1, "enderecoEmail"),
@@ -146,6 +149,18 @@ def extract_row(payload: Any) -> list[Any]:
         "",
         _value(data, "quantidadeFuncionarios"),
     ]
+
+
+def extract_rows(payload: Any) -> list[list[Any]]:
+    data = _retorno(_as_dict(payload))
+    socios = _dict_items(data, "socios")
+    if not socios:
+        socios = [{}]
+    return [_extract_row_for_socio(data, socio) for socio in socios]
+
+
+def extract_row(payload: Any) -> list[Any]:
+    return extract_rows(payload)[0]
 
 
 def _column_name(index: int) -> str:
@@ -282,19 +297,21 @@ def convert_directory(
 
     rows: list[list[Any]] = []
     errors: list[ConversionError] = []
+    processed_files = 0
 
     for file_path in sorted(source.glob("*.json")):
         try:
             payload = json.loads(file_path.read_text(encoding="utf-8-sig"))
             if not isinstance(payload, dict):
                 raise ValueError("JSON raiz precisa ser um objeto")
-            rows.append(extract_row(payload))
+            rows.extend(extract_rows(payload))
+            processed_files += 1
         except Exception as exc:
             errors.append(ConversionError(file_name=file_path.name, message=str(exc)))
 
     write_xlsx(output, rows)
     return ConversionResult(
-        processed_files=len(rows),
+        processed_files=processed_files,
         generated_rows=len(rows),
         errors=tuple(errors),
         output_path=output,
