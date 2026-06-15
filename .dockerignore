@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+__pycache__
+*.py[cod]
+storage
+dist
+cnpjs
+tests
+docs
+*.xlsx

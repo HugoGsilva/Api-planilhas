@@ -1,0 +1,25 @@
+services:
+  api-planilhas:
+    build:
+      context: .
+    image: api-planilhas:latest
+    container_name: api-planilhas
+    platform: linux/arm64
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DIRECTD_TOKEN: "${DIRECTD_TOKEN}"
+      APP_BASIC_USER: "${APP_BASIC_USER}"
+      APP_BASIC_PASSWORD: "${APP_BASIC_PASSWORD}"
+      DIRECTD_BASE_URL: "${DIRECTD_BASE_URL:-https://apiv3.directd.com.br}"
+      DIRECTD_TIMEOUT_SECONDS: "${DIRECTD_TIMEOUT_SECONDS:-20}"
+      DIRECTD_BATCH_DELAY_SECONDS: "${DIRECTD_BATCH_DELAY_SECONDS:-0}"
+      JOB_STORAGE_DIR: "storage/jobs"
+      JOB_RETENTION_HOURS: "${JOB_RETENTION_HOURS:-48}"
+      UPLOAD_MAX_MB: "${UPLOAD_MAX_MB:-100}"
+    volumes:
+      - api_planilhas_jobs:/app/storage/jobs
+
+volumes:
+  api_planilhas_jobs:
