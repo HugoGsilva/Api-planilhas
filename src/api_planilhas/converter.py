@@ -19,32 +19,30 @@ OFFICE_REL_NS = (
 
 
 HEADERS = [
-    "Pessoa",
-    "Telefone1",
-    "Telefone2",
-    "email Prin",
-    "email Secu",
-    "Cargo",
-    "CPF",
-    "Organizacao",
-    "CNPJ",
-    "CEP",
-    "Logradouro",
-    "Numero",
-    "Complemento",
-    "Bairro",
-    "Cidade",
-    "UF",
-    "IE",
-    "Segmento",
-    "Valor Estimado",
-    "*Nome Fantasia",
-    "*CNAE",
-    "*Vendedor",
-    "Titulo da oportunidade",
-    "Status",
-    "Data Ganho/Perdido",
-    "*QUANTIDADE DE FUNCIONARIOS",
+    "cnpj",
+    "razaoSocial",
+    "nomeFantasia",
+    "dataFundacao",
+    "cnaeCodigo",
+    "cnaeDescricao",
+    "cnaEsSecundarios",
+    "quantidadeFuncionarios",
+    "situacaoCadastral",
+    "naturezaJuridicaCodigo",
+    "naturezaJuridicaDescricao",
+    "naturezaJuridicaTipo",
+    "porte",
+    "faixaFuncionarios",
+    "faixaFaturamento",
+    "matriz",
+    "orgaoPublico",
+    "ramo",
+    "tipoEmpresa",
+    "telefones",
+    "enderecos",
+    "emails",
+    "ultimaAtualizacaoPJ",
+    "socios",
 ]
 
 
@@ -60,8 +58,7 @@ class ConversionResult:
 
     processed_files: quantidade de arquivos JSON processados com sucesso.
     Apenas arquivos com JSON válido (raiz do payload do tipo dict) contam.
-    generated_rows: quantidade de linhas geradas no XLSX. Um arquivo pode gerar
-    mais de uma linha quando houver mais de um socio.
+    generated_rows: quantidade de linhas geradas no XLSX.
     """
 
     processed_files: int
@@ -102,7 +99,20 @@ def _dict_items(data: dict[str, Any], key: str) -> list[dict[str, Any]]:
     return [item for item in items if isinstance(item, dict)]
 
 
-def _cnae(data: dict[str, Any]) -> str:
+def _join_values(values: list[Any], separator: str = ", ") -> str:
+    texts = [str(value) for value in values if value not in (None, "")]
+    return separator.join(texts)
+
+
+def _format_bool_sim_nao(value: Any) -> str:
+    if value is True:
+        return "Sim"
+    if value is False:
+        return "Não"
+    return ""
+
+
+def _format_cnae(data: dict[str, Any]) -> str:
     codigo = _value(data, "cnaeCodigo")
     descricao = _value(data, "cnaeDescricao")
 
@@ -115,48 +125,93 @@ def _cnae(data: dict[str, Any]) -> str:
     return ""
 
 
-def _extract_row_for_socio(data: dict[str, Any], socio: dict[str, Any]) -> list[Any]:
-    telefone_1 = _list_item(data, "telefones", 0)
-    telefone_2 = _list_item(data, "telefones", 1)
-    email_1 = _list_item(data, "emails", 0)
-    email_2 = _list_item(data, "emails", 1)
-    endereco = _list_item(data, "enderecos", 0)
+def _format_cnaes_secundarios(data: dict[str, Any]) -> str:
+    return _join_values(
+        [_format_cnae(item) for item in _dict_items(data, "cnaEsSecundarios")]
+    )
+
+
+def _format_telefone_list(data: dict[str, Any]) -> str:
+    return _join_values(
+        [_value(item, "telefoneComDDD") for item in _dict_items(data, "telefones")]
+    )
+
+
+def _format_email_list(data: dict[str, Any]) -> str:
+    return _join_values(
+        [_value(item, "enderecoEmail") for item in _dict_items(data, "emails")]
+    )
+
+
+def _format_address(address: dict[str, Any]) -> str:
+    return _join_values(
+        [
+            _value(address, "logradouro"),
+            _value(address, "numero"),
+            _value(address, "complemento"),
+            _value(address, "bairro"),
+            _value(address, "cidade"),
+            _value(address, "uf"),
+            _value(address, "cep"),
+        ]
+    )
+
+
+def _format_address_list(data: dict[str, Any]) -> str:
+    return _join_values(
+        [_format_address(item) for item in _dict_items(data, "enderecos")],
+        separator=" | ",
+    )
+
+
+def _format_socio(socio: dict[str, Any]) -> str:
+    nome = _value(socio, "nome")
+    cargo = _value(socio, "cargo")
+    if nome != "" and cargo != "":
+        return f"{nome} ({cargo})"
+    if nome != "":
+        return str(nome)
+    if cargo != "":
+        return f"({cargo})"
+    return ""
+
+
+def _format_socio_list(data: dict[str, Any]) -> str:
+    return _join_values([_format_socio(item) for item in _dict_items(data, "socios")])
+
+
+def _extract_csv_model_row(data: dict[str, Any]) -> list[Any]:
     return [
-        _value(socio, "nome"),
-        _value(telefone_1, "telefoneComDDD"),
-        _value(telefone_2, "telefoneComDDD"),
-        _value(email_1, "enderecoEmail"),
-        _value(email_2, "enderecoEmail"),
-        _value(socio, "cargo"),
-        _value(socio, "documento"),
-        _value(data, "razaoSocial"),
         _value(data, "cnpj"),
-        _value(endereco, "cep"),
-        _value(endereco, "logradouro"),
-        _value(endereco, "numero"),
-        _value(endereco, "complemento"),
-        _value(endereco, "bairro"),
-        _value(endereco, "cidade"),
-        _value(endereco, "uf"),
-        "",
-        "",
-        "",
+        _value(data, "razaoSocial"),
         _value(data, "nomeFantasia"),
-        _cnae(data),
-        "",
-        "",
-        _value(data, "situacaoCadastral"),
-        "",
+        _value(data, "dataFundacao"),
+        _value(data, "cnaeCodigo"),
+        _value(data, "cnaeDescricao"),
+        _format_cnaes_secundarios(data),
         _value(data, "quantidadeFuncionarios"),
+        _value(data, "situacaoCadastral"),
+        _value(data, "naturezaJuridicaCodigo"),
+        _value(data, "naturezaJuridicaDescricao"),
+        _value(data, "naturezaJuridicaTipo"),
+        _value(data, "porte"),
+        _value(data, "faixaFuncionarios"),
+        _value(data, "faixaFaturamento"),
+        _format_bool_sim_nao(_value(data, "matriz")),
+        _value(data, "orgaoPublico"),
+        _value(data, "ramo"),
+        _value(data, "tipoEmpresa"),
+        _format_telefone_list(data),
+        _format_address_list(data),
+        _format_email_list(data),
+        _value(data, "ultimaAtualizacaoPJ"),
+        _format_socio_list(data),
     ]
 
 
 def extract_rows(payload: Any) -> list[list[Any]]:
     data = _retorno(_as_dict(payload))
-    socios = _dict_items(data, "socios")
-    if not socios:
-        socios = [{}]
-    return [_extract_row_for_socio(data, socio) for socio in socios]
+    return [_extract_csv_model_row(data)]
 
 
 def extract_row(payload: Any) -> list[Any]:

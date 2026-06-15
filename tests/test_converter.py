@@ -25,37 +25,35 @@ from api_planilhas.converter import (
 class ExtractRowTest(unittest.TestCase):
     def test_headers_order_is_exactly_approved(self):
         expected_headers = [
-            "Pessoa",
-            "Telefone1",
-            "Telefone2",
-            "email Prin",
-            "email Secu",
-            "Cargo",
-            "CPF",
-            "Organizacao",
-            "CNPJ",
-            "CEP",
-            "Logradouro",
-            "Numero",
-            "Complemento",
-            "Bairro",
-            "Cidade",
-            "UF",
-            "IE",
-            "Segmento",
-            "Valor Estimado",
-            "*Nome Fantasia",
-            "*CNAE",
-            "*Vendedor",
-            "Titulo da oportunidade",
-            "Status",
-            "Data Ganho/Perdido",
-            "*QUANTIDADE DE FUNCIONARIOS",
+            "cnpj",
+            "razaoSocial",
+            "nomeFantasia",
+            "dataFundacao",
+            "cnaeCodigo",
+            "cnaeDescricao",
+            "cnaEsSecundarios",
+            "quantidadeFuncionarios",
+            "situacaoCadastral",
+            "naturezaJuridicaCodigo",
+            "naturezaJuridicaDescricao",
+            "naturezaJuridicaTipo",
+            "porte",
+            "faixaFuncionarios",
+            "faixaFaturamento",
+            "matriz",
+            "orgaoPublico",
+            "ramo",
+            "tipoEmpresa",
+            "telefones",
+            "enderecos",
+            "emails",
+            "ultimaAtualizacaoPJ",
+            "socios",
         ]
 
         self.assertEqual(HEADERS, expected_headers)
 
-    def test_extracts_complete_json_to_approved_columns(self):
+    def test_extracts_complete_json_to_csv_model_columns(self):
         payload = {
             "metaDados": {"resultado": "OK"},
             "retorno": {
@@ -64,8 +62,24 @@ class ExtractRowTest(unittest.TestCase):
                 "nomeFantasia": "EMPRESA TESTE",
                 "cnaeCodigo": 6201501,
                 "cnaeDescricao": "Desenvolvimento de programas de computador sob encomenda",
+                "cnaEsSecundarios": [
+                    {
+                        "cnaeCodigo": 7112000,
+                        "cnaeDescricao": "Servicos de engenharia",
+                    }
+                ],
                 "quantidadeFuncionarios": 42,
                 "situacaoCadastral": "ATIVA",
+                "naturezaJuridicaCodigo": 2062,
+                "naturezaJuridicaDescricao": "Sociedade Empresaria Limitada",
+                "naturezaJuridicaTipo": "Privada",
+                "porte": "MICRO EMPRESA",
+                "faixaFuncionarios": "Ate 9 Funcionarios",
+                "faixaFaturamento": "Ate R$ 240,0 Mil",
+                "matriz": True,
+                "orgaoPublico": "Nao",
+                "ramo": "Engenharia",
+                "tipoEmpresa": "LTDA",
                 "telefones": [
                     {"telefoneComDDD": "1130000001"},
                     {"telefoneComDDD": "1130000002"},
@@ -92,193 +106,89 @@ class ExtractRowTest(unittest.TestCase):
                         "nome": "JOAO SOCIO",
                         "documento": "12345678900",
                         "cargo": "SOCIO ADMINISTRADOR",
+                    },
+                    {
+                        "nome": "MARIA SOCIA",
+                        "documento": "98765432100",
+                        "cargo": "SOCIA",
                     }
                 ],
+                "ultimaAtualizacaoPJ": "01/01/2026 10:00:00",
             },
         }
 
         row = extract_row(payload)
 
         self.assertEqual(len(row), len(HEADERS))
-        self.assertEqual(row[HEADERS.index("Pessoa")], "JOAO SOCIO")
-        self.assertEqual(row[HEADERS.index("Telefone1")], "1130000001")
-        self.assertEqual(row[HEADERS.index("Telefone2")], "1130000002")
-        self.assertEqual(row[HEADERS.index("email Prin")], "principal@example.com")
-        self.assertEqual(row[HEADERS.index("email Secu")], "secundario@example.com")
-        self.assertEqual(row[HEADERS.index("Cargo")], "SOCIO ADMINISTRADOR")
-        self.assertEqual(row[HEADERS.index("CPF")], "12345678900")
-        self.assertEqual(row[HEADERS.index("Organizacao")], "EMPRESA TESTE LTDA")
-        self.assertEqual(row[HEADERS.index("CNPJ")], "00019000000133")
-        self.assertEqual(row[HEADERS.index("CEP")], "01001000")
-        self.assertEqual(row[HEADERS.index("Logradouro")], "PRACA DA SE")
-        self.assertEqual(row[HEADERS.index("Numero")], "100")
-        self.assertEqual(row[HEADERS.index("Complemento")], "CJ 10")
-        self.assertEqual(row[HEADERS.index("Bairro")], "SE")
-        self.assertEqual(row[HEADERS.index("Cidade")], "SAO PAULO")
-        self.assertEqual(row[HEADERS.index("UF")], "SP")
-        self.assertEqual(row[HEADERS.index("IE")], "")
-        self.assertEqual(row[HEADERS.index("Segmento")], "")
-        self.assertEqual(row[HEADERS.index("Valor Estimado")], "")
-        self.assertEqual(row[HEADERS.index("*Nome Fantasia")], "EMPRESA TESTE")
+        self.assertEqual(row[HEADERS.index("cnpj")], "00019000000133")
+        self.assertEqual(row[HEADERS.index("razaoSocial")], "EMPRESA TESTE LTDA")
+        self.assertEqual(row[HEADERS.index("nomeFantasia")], "EMPRESA TESTE")
+        self.assertEqual(row[HEADERS.index("dataFundacao")], "")
+        self.assertEqual(row[HEADERS.index("cnaeCodigo")], 6201501)
         self.assertEqual(
-            row[HEADERS.index("*CNAE")],
-            "6201501 - Desenvolvimento de programas de computador sob encomenda",
+            row[HEADERS.index("cnaeDescricao")],
+            "Desenvolvimento de programas de computador sob encomenda",
         )
-        self.assertEqual(row[HEADERS.index("*Vendedor")], "")
-        self.assertEqual(row[HEADERS.index("Titulo da oportunidade")], "")
-        self.assertEqual(row[HEADERS.index("Status")], "ATIVA")
-        self.assertEqual(row[HEADERS.index("Data Ganho/Perdido")], "")
-        self.assertEqual(row[HEADERS.index("*QUANTIDADE DE FUNCIONARIOS")], 42)
+        self.assertEqual(
+            row[HEADERS.index("cnaEsSecundarios")],
+            "7112000 - Servicos de engenharia",
+        )
+        self.assertEqual(row[HEADERS.index("quantidadeFuncionarios")], 42)
+        self.assertEqual(row[HEADERS.index("situacaoCadastral")], "ATIVA")
+        self.assertEqual(row[HEADERS.index("naturezaJuridicaCodigo")], 2062)
+        self.assertEqual(
+            row[HEADERS.index("naturezaJuridicaDescricao")],
+            "Sociedade Empresaria Limitada",
+        )
+        self.assertEqual(row[HEADERS.index("naturezaJuridicaTipo")], "Privada")
+        self.assertEqual(row[HEADERS.index("porte")], "MICRO EMPRESA")
+        self.assertEqual(row[HEADERS.index("faixaFuncionarios")], "Ate 9 Funcionarios")
+        self.assertEqual(row[HEADERS.index("faixaFaturamento")], "Ate R$ 240,0 Mil")
+        self.assertEqual(row[HEADERS.index("matriz")], "Sim")
+        self.assertEqual(row[HEADERS.index("orgaoPublico")], "Nao")
+        self.assertEqual(row[HEADERS.index("ramo")], "Engenharia")
+        self.assertEqual(row[HEADERS.index("tipoEmpresa")], "LTDA")
+        self.assertEqual(
+            row[HEADERS.index("telefones")],
+            "1130000001, 1130000002, 1130000003",
+        )
+        self.assertEqual(
+            row[HEADERS.index("enderecos")],
+            "PRACA DA SE, 100, CJ 10, SE, SAO PAULO, SP, 01001000",
+        )
+        self.assertEqual(
+            row[HEADERS.index("emails")],
+            "principal@example.com, secundario@example.com, terceiro@example.com",
+        )
+        self.assertEqual(row[HEADERS.index("ultimaAtualizacaoPJ")], "01/01/2026 10:00:00")
+        self.assertEqual(
+            row[HEADERS.index("socios")],
+            "JOAO SOCIO (SOCIO ADMINISTRADOR), MARIA SOCIA (SOCIA)",
+        )
 
-    def test_extracts_missing_phones_with_emails_and_socio(self):
+    def test_extracts_empty_cells_when_optional_json_fields_are_missing(self):
         payload = {
             "retorno": {
-                "razaoSocial": "SEM TELEFONE LTDA",
+                "cnpj": "00000000000000",
+                "razaoSocial": "SEM LISTAS LTDA",
                 "telefones": [],
-                "emails": [
-                    {"enderecoEmail": "contato@semsms.com"},
-                    {"enderecoEmail": "backup@semsms.com"},
-                ],
-                "socios": [
-                    {
-                        "documento": "98765432100",
-                        "cargo": "DIRETOR ADMINISTRATIVO",
-                    }
-                ],
-            }
-        }
-
-        row = extract_row(payload)
-
-        self.assertEqual(row[HEADERS.index("Telefone1")], "")
-        self.assertEqual(row[HEADERS.index("Telefone2")], "")
-        self.assertEqual(row[HEADERS.index("email Prin")], "contato@semsms.com")
-        self.assertEqual(row[HEADERS.index("email Secu")], "backup@semsms.com")
-        self.assertEqual(row[HEADERS.index("Pessoa")], "")
-        self.assertEqual(row[HEADERS.index("Cargo")], "DIRETOR ADMINISTRATIVO")
-        self.assertEqual(row[HEADERS.index("CPF")], "98765432100")
-
-    def test_extracts_missing_emails_with_phones(self):
-        payload = {
-            "retorno": {
-                "razaoSocial": "SEM EMAIL LTDA",
-                "telefones": [
-                    {"telefoneComDDD": "11999887766"},
-                ],
-                "socios": [
-                    {
-                        "documento": "11122233344",
-                        "cargo": "GESTOR",
-                    }
-                ],
-            }
-        }
-
-        row = extract_row(payload)
-
-        self.assertEqual(row[HEADERS.index("Telefone1")], "11999887766")
-        self.assertEqual(row[HEADERS.index("Telefone2")], "")
-        self.assertEqual(row[HEADERS.index("email Prin")], "")
-        self.assertEqual(row[HEADERS.index("email Secu")], "")
-        self.assertEqual(row[HEADERS.index("Pessoa")], "")
-        self.assertEqual(row[HEADERS.index("Cargo")], "GESTOR")
-        self.assertEqual(row[HEADERS.index("CPF")], "11122233344")
-
-    def test_extracts_missing_socio(self):
-        payload = {
-            "retorno": {
-                "razaoSocial": "SEM SOCIO LTDA",
-                "telefones": [
-                    {"telefoneComDDD": "11988776655"},
-                ],
-                "emails": [
-                    {"enderecoEmail": "contato@semsocio.com"},
-                ],
-            }
-        }
-
-        row = extract_row(payload)
-
-        self.assertEqual(row[HEADERS.index("Telefone1")], "11988776655")
-        self.assertEqual(row[HEADERS.index("email Prin")], "contato@semsocio.com")
-        self.assertEqual(row[HEADERS.index("Pessoa")], "")
-        self.assertEqual(row[HEADERS.index("Cargo")], "")
-        self.assertEqual(row[HEADERS.index("CPF")], "")
-
-    def test_extracts_socio_name_as_pessoa(self):
-        payload = {
-            "retorno": {
-                "razaoSocial": "EMPRESA COM SOCIO LTDA",
-                "socios": [
-                    {
-                        "nome": "MARIA SOCIA",
-                        "documento": "12345678900",
-                        "cargo": "SOCIA ADMINISTRADORA",
-                    }
-                ],
-            }
-        }
-
-        row = extract_row(payload)
-
-        self.assertEqual(row[HEADERS.index("Pessoa")], "MARIA SOCIA")
-        self.assertEqual(row[HEADERS.index("Cargo")], "SOCIA ADMINISTRADORA")
-        self.assertEqual(row[HEADERS.index("CPF")], "12345678900")
-        self.assertEqual(row[HEADERS.index("Organizacao")], "EMPRESA COM SOCIO LTDA")
-
-    def test_extract_rows_repeats_company_data_for_each_socio(self):
-        payload = {
-            "retorno": {
-                "cnpj": "00019000000133",
-                "razaoSocial": "EMPRESA MULTI SOCIOS LTDA",
-                "telefones": [{"telefoneComDDD": "1130000001"}],
-                "socios": [
-                    {
-                        "nome": "SOCIO UM",
-                        "documento": "11122233344",
-                        "cargo": "SOCIO",
-                    },
-                    {
-                        "nome": "SOCIO DOIS",
-                        "documento": "55566677788",
-                        "cargo": "ADMINISTRADOR",
-                    },
-                ],
-            }
-        }
-
-        rows = extract_rows(payload)
-
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0][HEADERS.index("Pessoa")], "SOCIO UM")
-        self.assertEqual(rows[0][HEADERS.index("CPF")], "11122233344")
-        self.assertEqual(rows[0][HEADERS.index("Cargo")], "SOCIO")
-        self.assertEqual(rows[1][HEADERS.index("Pessoa")], "SOCIO DOIS")
-        self.assertEqual(rows[1][HEADERS.index("CPF")], "55566677788")
-        self.assertEqual(rows[1][HEADERS.index("Cargo")], "ADMINISTRADOR")
-        for row in rows:
-            self.assertEqual(row[HEADERS.index("Organizacao")], "EMPRESA MULTI SOCIOS LTDA")
-            self.assertEqual(row[HEADERS.index("CNPJ")], "00019000000133")
-            self.assertEqual(row[HEADERS.index("Telefone1")], "1130000001")
-
-    def test_extract_rows_keeps_one_company_row_without_socios(self):
-        payload = {
-            "retorno": {
-                "cnpj": "00019000000133",
-                "razaoSocial": "EMPRESA SEM SOCIOS LTDA",
+                "emails": [],
+                "enderecos": [],
                 "socios": [],
             }
         }
 
-        rows = extract_rows(payload)
+        row = extract_row(payload)
 
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0][HEADERS.index("Pessoa")], "")
-        self.assertEqual(rows[0][HEADERS.index("Cargo")], "")
-        self.assertEqual(rows[0][HEADERS.index("CPF")], "")
-        self.assertEqual(rows[0][HEADERS.index("Organizacao")], "EMPRESA SEM SOCIOS LTDA")
+        self.assertEqual(row[HEADERS.index("cnpj")], "00000000000000")
+        self.assertEqual(row[HEADERS.index("razaoSocial")], "SEM LISTAS LTDA")
+        self.assertEqual(row[HEADERS.index("telefones")], "")
+        self.assertEqual(row[HEADERS.index("emails")], "")
+        self.assertEqual(row[HEADERS.index("enderecos")], "")
+        self.assertEqual(row[HEADERS.index("socios")], "")
+        self.assertEqual(row[HEADERS.index("matriz")], "")
 
-    def test_uses_first_address_when_multiple_addresses(self):
+    def test_joins_multiple_addresses_with_pipe_separator(self):
         payload = {
             "retorno": {
                 "razaoSocial": "ENDERECO MULTIPLO LTDA",
@@ -307,33 +217,13 @@ class ExtractRowTest(unittest.TestCase):
 
         row = extract_row(payload)
 
-        self.assertEqual(row[HEADERS.index("CEP")], "01000001")
-        self.assertEqual(row[HEADERS.index("Logradouro")], "Rua Primeiro")
-        self.assertEqual(row[HEADERS.index("Numero")], "10")
-        self.assertEqual(row[HEADERS.index("Complemento")], "Sala 1")
-        self.assertEqual(row[HEADERS.index("Bairro")], "Centro")
-        self.assertEqual(row[HEADERS.index("Cidade")], "Sao Paulo")
-        self.assertEqual(row[HEADERS.index("UF")], "SP")
-
-    def test_extracts_missing_lists_as_empty_cells(self):
-        payload = {
-            "retorno": {
-                "cnpj": "00000000000000",
-                "razaoSocial": "SEM LISTAS LTDA",
-                "cnaeDescricao": "Comercio varejista",
-            }
-        }
-
-        row = extract_row(payload)
-
-        self.assertEqual(row[HEADERS.index("Telefone1")], "")
-        self.assertEqual(row[HEADERS.index("Telefone2")], "")
-        self.assertEqual(row[HEADERS.index("email Prin")], "")
-        self.assertEqual(row[HEADERS.index("email Secu")], "")
-        self.assertEqual(row[HEADERS.index("Cargo")], "")
-        self.assertEqual(row[HEADERS.index("CPF")], "")
-        self.assertEqual(row[HEADERS.index("CEP")], "")
-        self.assertEqual(row[HEADERS.index("*CNAE")], "Comercio varejista")
+        self.assertEqual(
+            row[HEADERS.index("enderecos")],
+            (
+                "Rua Primeiro, 10, Sala 1, Centro, Sao Paulo, SP, 01000001"
+                " | Rua Segundo, 20, Sala 2, Jardim, Sao Paulo, SP, 02000002"
+            ),
+        )
 
     def test_handles_broken_structures_without_exception(self):
         payload: dict[str, Any] = {
@@ -358,14 +248,10 @@ class ExtractRowTest(unittest.TestCase):
 
         row = extract_row(payload)
 
-        self.assertEqual(row[HEADERS.index("Telefone1")], "")
-        self.assertEqual(row[HEADERS.index("Telefone2")], "")
-        self.assertEqual(row[HEADERS.index("email Prin")], "")
-        self.assertEqual(row[HEADERS.index("email Secu")], "")
-        self.assertEqual(row[HEADERS.index("Cargo")], "")
-        self.assertEqual(row[HEADERS.index("CPF")], "")
-        self.assertEqual(row[HEADERS.index("CEP")], "")
-        self.assertEqual(row[HEADERS.index("Logradouro")], "")
+        self.assertEqual(row[HEADERS.index("telefones")], "")
+        self.assertEqual(row[HEADERS.index("emails")], "")
+        self.assertEqual(row[HEADERS.index("enderecos")], "")
+        self.assertEqual(row[HEADERS.index("socios")], "")
 
     def test_converts_directory_and_reports_invalid_json(self):
         with TemporaryDirectory() as temp_dir:
@@ -395,7 +281,7 @@ class ExtractRowTest(unittest.TestCase):
             result = convert_directory(source, output)
 
             self.assertEqual(result.processed_files, 1)
-            self.assertEqual(result.generated_rows, 2)
+            self.assertEqual(result.generated_rows, 1)
             self.assertEqual(len(result.errors), 1)
             self.assertEqual(result.errors[0].file_name, "invalido.json")
             self.assertTrue(result.output_path == output)
@@ -555,7 +441,7 @@ class WriteXlsxTest(unittest.TestCase):
                 )
 
                 sheet_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
-                self.assertIn("Pessoa", sheet_xml)
+                self.assertIn("cnpj", sheet_xml)
                 self.assertIn("Empresa Exemplo LTDA", sheet_xml)
 
     def test_write_xlsx_writes_numbers_as_inline_string_and_escapes_xml(self):
@@ -621,7 +507,7 @@ class WriteXlsxTest(unittest.TestCase):
         with zipfile.ZipFile(BytesIO(content)) as archive:
             self.assertIn("xl/worksheets/sheet1.xml", archive.namelist())
             sheet_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
-            self.assertIn("Pessoa", sheet_xml)
+            self.assertIn("cnpj", sheet_xml)
             self.assertIn("EMPRESA BYTES LTDA", sheet_xml)
 
 if __name__ == "__main__":
