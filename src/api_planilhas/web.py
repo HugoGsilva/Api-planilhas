@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import (
@@ -32,6 +33,18 @@ from .security import require_basic_auth
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
 UPLOAD_CHUNK_SIZE = 1024 * 1024
+
+
+def _today_slug() -> str:
+    return datetime.now(UTC).date().isoformat()
+
+
+def _single_cnpj_filename(cnpj: str) -> str:
+    return f"cnpj_{cnpj}_{_today_slug()}.xlsx"
+
+
+def _batch_filename(job_id: str) -> str:
+    return f"cnpjs_lote_{_today_slug()}_{job_id[:8]}.xlsx"
 
 
 def _job_payload(job) -> dict:
@@ -108,7 +121,7 @@ def create_app() -> FastAPI:
             ) from exc
 
         content = build_xlsx_bytes(extract_rows(payload))
-        filename = f"importacao_oportunidade_{normalized}.xlsx"
+        filename = _single_cnpj_filename(normalized)
         return Response(
             content=content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -192,7 +205,7 @@ def create_app() -> FastAPI:
         return FileResponse(
             store.output_path(job_id),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename=f"importacao_oportunidades_lote_{job_id}.xlsx",
+            filename=_batch_filename(job_id),
         )
 
     return app

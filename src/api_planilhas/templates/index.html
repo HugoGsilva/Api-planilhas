@@ -9,22 +9,45 @@
         font-family: Arial, Helvetica, sans-serif;
         margin: 0;
         padding: 24px;
-        background: #f7f7fb;
+        background: #f4f6f8;
         color: #1f2937;
       }
 
       .container {
-        max-width: 680px;
+        max-width: 880px;
         margin: 0 auto;
-        background: #ffffff;
-        border: 1px solid #dde2ed;
-        border-radius: 8px;
-        padding: 24px;
       }
 
       h1 {
         margin-top: 0;
         font-size: 1.5rem;
+      }
+
+      h2 {
+        font-size: 1.15rem;
+        margin-top: 0;
+      }
+
+      hr {
+        border: 0;
+        border-top: 1px solid #dde2ed;
+        margin: 24px 0;
+      }
+
+      .panel {
+        background: #ffffff;
+        border: 1px solid #dde2ed;
+        border-radius: 8px;
+        margin-bottom: 16px;
+        padding: 20px;
+      }
+
+      .actions {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
       }
 
       label {
@@ -35,7 +58,6 @@
 
       input,
       button {
-        width: 100%;
         font-size: 1rem;
         padding: 10px;
         border-radius: 6px;
@@ -44,17 +66,24 @@
       input {
         border: 1px solid #c5c8d5;
         box-sizing: border-box;
+        width: 100%;
       }
 
       button {
-        margin-top: 12px;
         border: 1px solid #2563eb;
         background: #2563eb;
         color: #ffffff;
+        cursor: pointer;
+        min-width: 132px;
       }
 
       button[disabled] {
         opacity: 0.7;
+      }
+
+      button.secondary {
+        background: #ffffff;
+        color: #2563eb;
       }
 
       .status {
@@ -82,7 +111,7 @@
       }
 
       .history-header h2 {
-        margin-bottom: 0;
+        margin: 0;
       }
 
       .history-header button {
@@ -106,56 +135,84 @@
 
       .history-table button {
         margin-top: 0;
+        min-width: 88px;
         padding: 8px;
+      }
+
+      @media (max-width: 640px) {
+        body {
+          padding: 12px;
+        }
+
+        .actions,
+        .history-header {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        button,
+        .history-header button {
+          max-width: none;
+          width: 100%;
+        }
+
+        .history-table {
+          display: block;
+          overflow-x: auto;
+        }
       }
     </style>
   </head>
   <body>
     <main class="container">
-      <h1>Gerar planilha</h1>
-      <form id="planilhaForm" autocomplete="off">
-        <label for="cnpj">CNPJ</label>
-        <input id="cnpj" name="cnpj" required />
-        <button type="submit" id="generateButton">Gerar planilha</button>
-      </form>
+      <section class="panel">
+        <h1>Gerar planilha</h1>
+        <form id="planilhaForm" autocomplete="off">
+          <label for="cnpj">CNPJ</label>
+          <input id="cnpj" name="cnpj" required />
+          <div class="actions">
+            <button type="submit" id="generateButton">Gerar planilha</button>
+            <button
+              id="downloadButton"
+              type="button"
+              class="hidden secondary"
+              aria-live="polite"
+            >
+              Baixar novamente
+            </button>
+          </div>
+        </form>
 
-      <p id="status" class="status" aria-live="polite"></p>
-      <button
-        id="downloadButton"
-        type="button"
-        class="hidden"
-        aria-live="polite"
-      >
-        Baixar novamente
-      </button>
-
-      <hr />
-
-      <h2>Gerar planilha em lote</h2>
-      <form id="batchForm">
-        <label for="batchFile">Planilha XLSX com coluna CNPJ</label>
-        <input id="batchFile" name="file" type="file" accept=".xlsx" required />
-        <button type="submit" id="batchButton">Enviar lote</button>
-      </form>
-
-      <p id="batchStatus" class="status" aria-live="polite"></p>
-      <button id="batchDownloadButton" type="button" class="hidden">
-        Baixar planilha do lote
-      </button>
-      <button id="manualStatusButton" type="button" class="hidden">
-        Consultar status
-      </button>
-      <section id="batchErrorsSection" class="hidden">
-        <h3>CNPJs com erro</h3>
-        <ul id="batchErrors"></ul>
+        <p id="status" class="status" aria-live="polite"></p>
       </section>
 
-      <hr />
+      <section class="panel">
+        <h2>Gerar planilha em lote</h2>
+        <form id="batchForm">
+          <label for="batchFile">Planilha XLSX com coluna CNPJ</label>
+          <input id="batchFile" name="file" type="file" accept=".xlsx" required />
+          <div class="actions">
+            <button type="submit" id="batchButton">Enviar lote</button>
+            <button id="batchDownloadButton" type="button" class="hidden secondary">
+              Baixar planilha do lote
+            </button>
+            <button id="manualStatusButton" type="button" class="hidden secondary">
+              Consultar status
+            </button>
+          </div>
+        </form>
 
-      <section>
+        <p id="batchStatus" class="status" aria-live="polite"></p>
+        <section id="batchErrorsSection" class="hidden">
+          <h3>CNPJs com erro</h3>
+          <ul id="batchErrors"></ul>
+        </section>
+      </section>
+
+      <section class="panel">
         <div class="history-header">
           <h2>Historico de lotes</h2>
-          <button id="refreshHistoryButton" type="button">Atualizar</button>
+          <button id="refreshHistoryButton" type="button" class="secondary">Atualizar</button>
         </div>
         <p id="historyStatus" class="status" aria-live="polite"></p>
         <table class="history-table">
@@ -194,6 +251,7 @@
       let downloadFilename = "importacao_oportunidade.xlsx";
       let currentBatchJobId = "";
       let batchPollTimer = 0;
+      let historyRefreshTimer = 0;
 
       const API_URL = "/api/planilha";
 
@@ -492,6 +550,7 @@
       manualStatusButton.addEventListener("click", refreshBatchStatus);
       refreshHistoryButton.addEventListener("click", loadBatchHistory);
       loadBatchHistory();
+      historyRefreshTimer = setInterval(loadBatchHistory, 10000);
     </script>
   </body>
 </html>

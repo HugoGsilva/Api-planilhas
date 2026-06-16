@@ -450,6 +450,8 @@ vm.runInNewContext({script!r}, context);
         self.assertIn("Historico de lotes", page)
         self.assertIn("historyRows", page)
         self.assertIn("loadBatchHistory", page)
+        self.assertIn("historyRefreshTimer", page)
+        self.assertIn("10000", page)
         self.assertNotIn("response.text()", page)
 
     def test_batch_frontend_polls_once_and_stops_on_completed(self):
@@ -486,14 +488,17 @@ assert.deepStrictEqual(
   calls.map((call) => [call.method, call.url]),
   [["POST", "/api/lotes"], ["GET", "/api/lotes/job-123"], ["GET", "/api/lotes"]]
 );
-assert.strictEqual(intervalHandles.length, 1);
-assert.strictEqual(intervalHandles[0].delay, 3000);
+assert.strictEqual(intervalHandles.length, 2);
+const batchInterval = intervalHandles.find((item) => item.delay === 3000);
+const historyInterval = intervalHandles.find((item) => item.delay === 10000);
+assert.ok(batchInterval);
+assert.ok(historyInterval);
 assert.strictEqual(get("manualStatusButton").classList.contains("hidden"), false);
 assert.strictEqual(get("batchDownloadButton").classList.contains("hidden"), true);
 
-await intervalHandles[0].fn();
+await batchInterval.fn();
 
-assert.strictEqual(clearedHandles.includes(intervalHandles[0].handle), true);
+assert.strictEqual(clearedHandles.includes(batchInterval.handle), true);
 assert.strictEqual(get("batchDownloadButton").classList.contains("hidden"), false);
 assert.match(get("batchStatus").textContent, /completed/);
 """
@@ -789,9 +794,9 @@ class PlanilhaRouteTest(unittest.TestCase):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         self.assertIn("attachment;", response.headers["content-disposition"])
-        self.assertIn(
-            'filename="importacao_oportunidade_12345678000190.xlsx"',
+        self.assertRegex(
             response.headers["content-disposition"],
+            r'filename="cnpj_12345678000190_\d{4}-\d{2}-\d{2}\.xlsx"',
         )
         self.assertGreater(len(response.content), 100)
 
@@ -1132,8 +1137,8 @@ class BatchRoutesTest(unittest.TestCase):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         self.assertIn("attachment;", response.headers["content-disposition"])
-        self.assertIn(
-            f'importacao_oportunidades_lote_{job.job_id}.xlsx',
+        self.assertRegex(
             response.headers["content-disposition"],
+            rf'filename="cnpjs_lote_\d{{4}}-\d{{2}}-\d{{2}}_{job.job_id[:8]}\.xlsx"',
         )
         self.assertGreater(len(response.content), 100)
