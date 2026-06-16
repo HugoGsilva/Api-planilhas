@@ -132,6 +132,25 @@ class JobStoreTest(unittest.TestCase):
             store.mark_completed(job.job_id)
             self.assertTrue(store.get_job(job.job_id).download_ready)
 
+    def test_lists_recent_jobs_with_timestamps_and_download_state(self):
+        with TemporaryDirectory() as temp_dir:
+            store = JobStore(Path(temp_dir))
+            store.initialize()
+            older = store.create_job(["11111111000191"])
+            newer = store.create_job(["22222222000192"])
+            store.output_path(newer.job_id).write_bytes(b"xlsx")
+            store.mark_completed(newer.job_id)
+
+            jobs = store.list_jobs()
+
+            self.assertEqual([job.job_id for job in jobs], [newer.job_id, older.job_id])
+            self.assertEqual(jobs[0].status, "completed")
+            self.assertTrue(jobs[0].download_ready)
+            self.assertIsNotNone(jobs[0].created_at)
+            self.assertIsNotNone(jobs[0].finished_at)
+            self.assertIsNotNone(jobs[1].created_at)
+            self.assertIsNone(jobs[1].finished_at)
+
     def test_missing_job_raises_job_not_found(self):
         with TemporaryDirectory() as temp_dir:
             store = JobStore(Path(temp_dir))

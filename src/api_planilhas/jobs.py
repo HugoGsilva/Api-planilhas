@@ -32,6 +32,8 @@ class JobSnapshot:
     success: int
     errors: list[dict[str, str]]
     download_ready: bool
+    created_at: str
+    finished_at: str | None
 
 
 class JobNotFoundError(KeyError):
@@ -127,6 +129,19 @@ class JobStore:
     def get_job(self, job_id: str) -> JobSnapshot:
         row = self._load_row(job_id)
         return self._snapshot_from_row(row)
+
+    def list_jobs(self, limit: int = 50) -> list[JobSnapshot]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM jobs
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [self._snapshot_from_row(row) for row in rows]
 
     def mark_processing(self, job_id: str) -> None:
         self._execute_existing(
@@ -272,6 +287,8 @@ class JobStore:
             success=row["success"],
             errors=self._decode_errors(row["errors_json"]),
             download_ready=status == "completed" and self.output_path(job_id).exists(),
+            created_at=row["created_at"],
+            finished_at=row["finished_at"],
         )
 
     def _decode_errors(self, errors_json: str) -> list[dict[str, str]]:

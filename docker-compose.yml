@@ -16,7 +16,7 @@ services:
       DIRECTD_TIMEOUT_SECONDS: "${DIRECTD_TIMEOUT_SECONDS:-20}"
       DIRECTD_BATCH_DELAY_SECONDS: "${DIRECTD_BATCH_DELAY_SECONDS:-0}"
       JOB_STORAGE_DIR: "storage/jobs"
-      JOB_RETENTION_HOURS: "${JOB_RETENTION_HOURS:-48}"
+      JOB_RETENTION_HOURS: "${JOB_RETENTION_HOURS:-168}"
       UPLOAD_MAX_MB: "${UPLOAD_MAX_MB:-100}"
     volumes:
       - api_planilhas_jobs:/app/storage/jobs

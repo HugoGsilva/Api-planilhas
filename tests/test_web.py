@@ -447,6 +447,9 @@ vm.runInNewContext({script!r}, context);
         self.assertIn("Consultar status", page)
         self.assertIn("CNPJs com erro", page)
         self.assertIn("downloadBatch", page)
+        self.assertIn("Historico de lotes", page)
+        self.assertIn("historyRows", page)
+        self.assertIn("loadBatchHistory", page)
         self.assertNotIn("response.text()", page)
 
     def test_batch_frontend_polls_once_and_stops_on_completed(self):
@@ -481,7 +484,7 @@ await context.submitBatch({ preventDefault() {} });
 
 assert.deepStrictEqual(
   calls.map((call) => [call.method, call.url]),
-  [["POST", "/api/lotes"], ["GET", "/api/lotes/job-123"]]
+  [["POST", "/api/lotes"], ["GET", "/api/lotes/job-123"], ["GET", "/api/lotes"]]
 );
 assert.strictEqual(intervalHandles.length, 1);
 assert.strictEqual(intervalHandles[0].delay, 3000);
@@ -1065,6 +1068,38 @@ class BatchRoutesTest(unittest.TestCase):
         self.assertFalse(status_response.json()["download_ready"])
         self.assertEqual(download_response.status_code, 409)
         self.assertEqual(missing_response.status_code, 404)
+
+    def test_batch_history_lists_recent_jobs(self):
+        from api_planilhas.converter import write_xlsx
+        from api_planilhas.jobs import JobStore
+
+        env = {
+            "DIRECTD_TOKEN": "token",
+            "APP_BASIC_USER": "admin",
+            "APP_BASIC_PASSWORD": "secret",
+        }
+
+        with TemporaryDirectory() as temp_dir:
+            storage_dir = Path(temp_dir)
+            store = JobStore(storage_dir)
+            store.initialize()
+            queued = store.create_job(["11111111000191"])
+            completed = store.create_job(["22222222000192"])
+            write_xlsx(store.output_path(completed.job_id), [["EMPRESA TESTE"]])
+            store.mark_completed(completed.job_id)
+
+            with patch.dict(os.environ, env, clear=True):
+                client = self._client(storage_dir)
+                response = client.get("/api/lotes", headers=_basic_header())
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual([item["job_id"] for item in payload["jobs"]], [completed.job_id, queued.job_id])
+        self.assertTrue(payload["jobs"][0]["download_ready"])
+        self.assertEqual(payload["jobs"][0]["status"], "completed")
+        self.assertIn("created_at", payload["jobs"][0])
+        self.assertIn("finished_at", payload["jobs"][0])
+        self.assertFalse(payload["jobs"][1]["download_ready"])
 
     def test_batch_download_returns_completed_xlsx(self):
         from api_planilhas.converter import write_xlsx

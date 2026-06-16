@@ -73,6 +73,41 @@
       .hidden {
         display: none;
       }
+
+      .history-header {
+        align-items: center;
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+      }
+
+      .history-header h2 {
+        margin-bottom: 0;
+      }
+
+      .history-header button {
+        max-width: 140px;
+      }
+
+      .history-table {
+        border-collapse: collapse;
+        margin-top: 12px;
+        width: 100%;
+      }
+
+      .history-table th,
+      .history-table td {
+        border-bottom: 1px solid #dde2ed;
+        font-size: 0.9rem;
+        padding: 8px 4px;
+        text-align: left;
+        vertical-align: middle;
+      }
+
+      .history-table button {
+        margin-top: 0;
+        padding: 8px;
+      }
     </style>
   </head>
   <body>
@@ -114,6 +149,28 @@
         <h3>CNPJs com erro</h3>
         <ul id="batchErrors"></ul>
       </section>
+
+      <hr />
+
+      <section>
+        <div class="history-header">
+          <h2>Historico de lotes</h2>
+          <button id="refreshHistoryButton" type="button">Atualizar</button>
+        </div>
+        <p id="historyStatus" class="status" aria-live="polite"></p>
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Status</th>
+              <th>Progresso</th>
+              <th>Erros</th>
+              <th>Arquivo</th>
+            </tr>
+          </thead>
+          <tbody id="historyRows"></tbody>
+        </table>
+      </section>
     </main>
 
     <script>
@@ -130,6 +187,9 @@
       const batchErrorsSection = document.getElementById("batchErrorsSection");
       const batchErrors = document.getElementById("batchErrors");
       const manualStatusButton = document.getElementById("manualStatusButton");
+      const refreshHistoryButton = document.getElementById("refreshHistoryButton");
+      const historyStatus = document.getElementById("historyStatus");
+      const historyRows = document.getElementById("historyRows");
       let downloadUrl = "";
       let downloadFilename = "importacao_oportunidade.xlsx";
       let currentBatchJobId = "";
@@ -163,6 +223,77 @@
           const li = document.createElement("li");
           li.textContent = `${item.cnpj || "sem cnpj"} - ${item.message || "Erro"}`;
           batchErrors.appendChild(li);
+        }
+      }
+
+      function formatDate(value) {
+        if (!value) {
+          return "-";
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return value;
+        }
+
+        return date.toLocaleString("pt-BR");
+      }
+
+      function renderBatchHistory(jobs) {
+        historyRows.textContent = "";
+        historyStatus.className = "status";
+
+        if (!jobs || jobs.length === 0) {
+          historyStatus.textContent = "Nenhum lote encontrado nos ultimos 7 dias.";
+          return;
+        }
+
+        historyStatus.textContent = `${jobs.length} lote(s) nos ultimos 7 dias.`;
+        for (const job of jobs) {
+          const row = document.createElement("tr");
+          const createdCell = document.createElement("td");
+          const statusCell = document.createElement("td");
+          const progressCell = document.createElement("td");
+          const errorsCell = document.createElement("td");
+          const actionCell = document.createElement("td");
+
+          createdCell.textContent = formatDate(job.created_at);
+          statusCell.textContent = job.status || "-";
+          progressCell.textContent = `${job.processed || 0}/${job.total || 0}`;
+          errorsCell.textContent = String((job.errors || []).length);
+
+          if (job.download_ready) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = "Baixar";
+            button.addEventListener("click", () => {
+              window.location.href = `/api/lotes/${job.job_id}/download`;
+            });
+            actionCell.appendChild(button);
+          } else {
+            actionCell.textContent = "-";
+          }
+
+          row.appendChild(createdCell);
+          row.appendChild(statusCell);
+          row.appendChild(progressCell);
+          row.appendChild(errorsCell);
+          row.appendChild(actionCell);
+          historyRows.appendChild(row);
+        }
+      }
+
+      async function loadBatchHistory() {
+        try {
+          const response = await fetch("/api/lotes");
+          if (!response.ok) {
+            throw new Error(await readErrorMessage(response));
+          }
+          const payload = await response.json();
+          renderBatchHistory(payload.jobs || []);
+        } catch (error) {
+          historyStatus.textContent = error.message || "Nao foi possivel carregar o historico.";
+          historyStatus.className = "status error";
         }
       }
 
@@ -305,6 +436,7 @@
           ) {
             batchPollTimer = setInterval(refreshBatchStatus, 3000);
           }
+          await loadBatchHistory();
         } catch (error) {
           currentBatchJobId = "";
           setBatchStatus(error.message || "Erro ao enviar lote.", "error");
@@ -358,6 +490,8 @@
       batchForm.addEventListener("submit", submitBatch);
       batchDownloadButton.addEventListener("click", downloadBatch);
       manualStatusButton.addEventListener("click", refreshBatchStatus);
+      refreshHistoryButton.addEventListener("click", loadBatchHistory);
+      loadBatchHistory();
     </script>
   </body>
 </html>

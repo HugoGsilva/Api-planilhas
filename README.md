@@ -9,7 +9,7 @@ API em FastAPI para consultar CNPJs na DirectD e gerar planilhas XLSX no modelo 
 - Permite envio de planilha XLSX em lote com uma coluna `CNPJ`.
 - Consulta a API DirectD `CadastroPessoaJuridica`.
 - Gera XLSX para download com os campos do modelo DirectD.
-- Mantem apenas arquivos temporarios de jobs em disco, com limpeza por retencao.
+- Mantem historico visual e download dos lotes por 7 dias, com limpeza automatica.
 
 ## Modelo da planilha gerada
 
@@ -43,7 +43,7 @@ Opcionais:
 - `DIRECTD_TIMEOUT_SECONDS`: padrao `20`.
 - `DIRECTD_BATCH_DELAY_SECONDS`: padrao `0`.
 - `JOB_STORAGE_DIR`: padrao `storage/jobs`.
-- `JOB_RETENTION_HOURS`: padrao `48`.
+- `JOB_RETENTION_HOURS`: padrao `168` (7 dias).
 - `UPLOAD_MAX_MB`: padrao `100`.
 
 ## Rodar localmente no Windows
@@ -115,7 +115,7 @@ Mantenha um volume persistente em:
 /app/storage/jobs
 ```
 
-Esse volume guarda jobs temporarios, status e planilhas geradas ate a limpeza por `JOB_RETENTION_HOURS`.
+Esse volume guarda jobs temporarios, status, historico visual e planilhas geradas ate a limpeza por `JOB_RETENTION_HOURS`. O padrao atual e 168 horas, ou 7 dias.
 
 ## Testes
 

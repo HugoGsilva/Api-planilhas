@@ -34,6 +34,20 @@ TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
 UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
+def _job_payload(job) -> dict:
+    return {
+        "job_id": job.job_id,
+        "status": job.status,
+        "total": job.total,
+        "processed": job.processed,
+        "success": job.success,
+        "errors": job.errors,
+        "download_ready": job.download_ready,
+        "created_at": job.created_at,
+        "finished_at": job.finished_at,
+    }
+
+
 def _get_job_store(app: FastAPI, settings: AppSettings) -> JobStore:
     store = getattr(app.state, "job_store", None)
     if store is not None and store.storage_dir == settings.job_storage_dir:
@@ -132,6 +146,14 @@ def create_app() -> FastAPI:
             content={"job_id": job.job_id},
         )
 
+    @app.get("/api/lotes", dependencies=[Depends(require_basic_auth)])
+    def listar_lotes(
+        request: Request,
+        settings: AppSettings = Depends(get_settings),
+    ) -> dict:
+        store = _get_job_store(request.app, settings)
+        return {"jobs": [_job_payload(job) for job in store.list_jobs()]}
+
     @app.get("/api/lotes/{job_id}", dependencies=[Depends(require_basic_auth)])
     def consultar_lote(
         request: Request,
@@ -146,15 +168,7 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Job nao encontrado",
             ) from exc
-        return {
-            "job_id": job.job_id,
-            "status": job.status,
-            "total": job.total,
-            "processed": job.processed,
-            "success": job.success,
-            "errors": job.errors,
-            "download_ready": job.download_ready,
-        }
+        return _job_payload(job)
 
     @app.get("/api/lotes/{job_id}/download", dependencies=[Depends(require_basic_auth)])
     def baixar_lote(
