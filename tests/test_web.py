@@ -339,6 +339,8 @@ function createElement(id) {{
     files: [],
     children: [],
     className: "",
+    parentNode: null,
+    colSpan: 1,
     classList: {{
       add(name) {{ classes.add(name); }},
       remove(name) {{ classes.delete(name); }},
@@ -352,11 +354,43 @@ function createElement(id) {{
       contains(name) {{ return classes.has(name); }},
     }},
     addEventListener(event, handler) {{ this[`on${{event}}`] = handler; }},
-    appendChild(child) {{ this.children.push(child); return child; }},
+    appendChild(child) {{
+      child.parentNode = this;
+      this.children.push(child);
+      return child;
+    }},
     removeChild(child) {{
       this.children = this.children.filter((item) => item !== child);
+      child.parentNode = null;
     }},
-    click() {{ this.clicked = true; }},
+    insertBefore(child, before) {{
+      child.parentNode = this;
+      const index = this.children.indexOf(before);
+      if (index === -1) {{
+        this.children.push(child);
+      }} else {{
+        this.children.splice(index, 0, child);
+      }}
+      return child;
+    }},
+    remove() {{
+      if (this.parentNode) {{
+        this.parentNode.removeChild(this);
+      }}
+    }},
+    get nextSibling() {{
+      if (!this.parentNode) {{
+        return null;
+      }}
+      const index = this.parentNode.children.indexOf(this);
+      return this.parentNode.children[index + 1] || null;
+    }},
+    click() {{
+      this.clicked = true;
+      if (this.onclick) {{
+        this.onclick({{ target: this }});
+      }}
+    }},
   }};
 }}
 
@@ -531,6 +565,41 @@ await context.submitBatch({ preventDefault() {} });
 context.downloadBatch();
 
 assert.strictEqual(context.window.location.href, "/api/lotes/job-456/download");
+"""
+        )
+
+    def test_batch_history_expands_error_cnpjs(self):
+        self._run_frontend_script(
+            """
+context.fetch = async (url) => {
+  assert.strictEqual(url, "/api/lotes");
+  return {
+    ok: true,
+    json: async () => ({
+      jobs: [{
+        job_id: "job-erro",
+        status: "completed",
+        processed: 2,
+        total: 2,
+        success: 1,
+        download_ready: true,
+        created_at: "2026-06-17T00:00:00+00:00",
+        errors: [{ cnpj: "12345678000190", message: "DirectD indisponivel" }],
+      }],
+    }),
+  };
+};
+
+await context.loadBatchHistory();
+
+const button = get("historyRows").children[0].children[3].children[0];
+assert.strictEqual(button.textContent, "Ver 1 erro");
+button.click();
+
+const detailsRow = get("historyRows").children[1];
+const errorText = detailsRow.children[0].children[0].children[0].textContent;
+assert.match(errorText, /12345678000190/);
+assert.match(errorText, /DirectD indisponivel/);
 """
         )
 

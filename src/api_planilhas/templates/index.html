@@ -139,6 +139,25 @@
         padding: 8px;
       }
 
+      .history-error-button {
+        background: #ffffff;
+        border-color: #b91c1c;
+        color: #b91c1c;
+      }
+
+      .history-error-details {
+        background: #fff7f7;
+      }
+
+      .history-error-list {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      .history-error-list li {
+        margin: 4px 0;
+      }
+
       @media (max-width: 640px) {
         body {
           padding: 12px;
@@ -318,7 +337,38 @@
           createdCell.textContent = formatDate(job.created_at);
           statusCell.textContent = job.status || "-";
           progressCell.textContent = `${job.processed || 0}/${job.total || 0}`;
-          errorsCell.textContent = String((job.errors || []).length);
+          const errors = job.errors || [];
+          if (errors.length > 0) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "history-error-button";
+            button.textContent = errors.length === 1 ? "Ver 1 erro" : `Ver ${errors.length} erros`;
+            button.addEventListener("click", () => {
+              const detailsRow = row.nextSibling;
+              if (detailsRow && detailsRow.className === "history-error-details") {
+                detailsRow.remove();
+                return;
+              }
+
+              const errorRow = document.createElement("tr");
+              errorRow.className = "history-error-details";
+              const errorCell = document.createElement("td");
+              errorCell.colSpan = 5;
+              const list = document.createElement("ul");
+              list.className = "history-error-list";
+              for (const item of errors) {
+                const li = document.createElement("li");
+                li.textContent = `${item.cnpj || "sem cnpj"} - ${item.message || "Erro"}`;
+                list.appendChild(li);
+              }
+              errorCell.appendChild(list);
+              errorRow.appendChild(errorCell);
+              row.parentNode.insertBefore(errorRow, row.nextSibling);
+            });
+            errorsCell.appendChild(button);
+          } else {
+            errorsCell.textContent = "0";
+          }
 
           if (job.download_ready) {
             const button = document.createElement("button");
