@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import threading
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import AsyncIterator, Callable
 
 from fastapi import (
     BackgroundTasks,
@@ -33,6 +36,7 @@ from .security import require_basic_auth
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
 UPLOAD_CHUNK_SIZE = 1024 * 1024
+JobRunner = Callable[[str, JobStore, AppSettings], None]
 
 
 def _today_slug() -> str:
@@ -73,6 +77,25 @@ def _get_job_store(app: FastAPI, settings: AppSettings) -> JobStore:
     return store
 
 
+def resume_incomplete_jobs(
+    app: FastAPI,
+    settings: AppSettings,
+    runner: JobRunner = process_job,
+    run_async: bool = True,
+) -> None:
+    store = _get_job_store(app, settings)
+    for job in store.list_incomplete_jobs():
+        if run_async:
+            thread = threading.Thread(
+                target=runner,
+                args=(job.job_id, store, settings),
+                daemon=True,
+            )
+            thread.start()
+        else:
+            runner(job.job_id, store, settings)
+
+
 async def _read_upload_with_limit(
     file: UploadFile,
     max_bytes: int,
@@ -91,8 +114,14 @@ async def _read_upload_with_limit(
         content.extend(chunk)
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    resume_incomplete_jobs(app, get_settings())
+    yield
+
+
 def create_app() -> FastAPI:
-    app = FastAPI()
+    app = FastAPI(lifespan=_lifespan)
 
     @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_basic_auth)])
     async def homepage() -> str:

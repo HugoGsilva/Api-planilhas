@@ -83,6 +83,36 @@ class BatchProcessorTest(unittest.TestCase):
             self.assertIn("EMPRESA 12345678000190", sheet_xml)
             self.assertNotIn("EMPRESA 11222333000144", sheet_xml)
 
+    def test_resumes_from_saved_payloads_without_refetching_completed_cnpjs(self):
+        with TemporaryDirectory() as temp_dir:
+            store = JobStore(Path(temp_dir))
+            store.initialize()
+            job = store.create_job(["11.222.333/0001-44", "12.345.678/0001-90"])
+            store.record_success_payload(
+                job.job_id,
+                "11222333000144",
+                _payload("11222333000144"),
+            )
+            fetched: list[str] = []
+
+            def fake_fetch(cnpj, settings):
+                fetched.append(cnpj)
+                return _payload(cnpj)
+
+            process_job(job.job_id, store, _settings(), fetcher=fake_fetch)
+
+            loaded = store.get_job(job.job_id)
+            self.assertEqual(loaded.status, "completed")
+            self.assertEqual(loaded.processed, 2)
+            self.assertEqual(loaded.success, 2)
+            self.assertEqual(fetched, ["12345678000190"])
+
+            with zipfile.ZipFile(store.output_path(job.job_id)) as archive:
+                sheet_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+
+            self.assertIn("EMPRESA 11222333000144", sheet_xml)
+            self.assertIn("EMPRESA 12345678000190", sheet_xml)
+
     def test_marks_job_failed_on_unexpected_structural_failure(self):
         with TemporaryDirectory() as temp_dir:
             store = JobStore(Path(temp_dir))

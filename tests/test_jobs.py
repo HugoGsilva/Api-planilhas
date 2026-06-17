@@ -151,6 +151,53 @@ class JobStoreTest(unittest.TestCase):
             self.assertIsNotNone(jobs[1].created_at)
             self.assertIsNone(jobs[1].finished_at)
 
+    def test_persists_result_and_error_artifacts_by_cnpj(self):
+        with TemporaryDirectory() as temp_dir:
+            store = JobStore(Path(temp_dir))
+            store.initialize()
+            job = store.create_job(["12345678000190", "123"])
+
+            store.record_success_payload(
+                job.job_id,
+                "12345678000190",
+                {"retorno": {"cnpj": "12345678000190"}},
+            )
+            store.record_cnpj_error(job.job_id, "123", "CNPJ deve conter 14 digitos")
+
+            self.assertTrue(store.result_path(job.job_id, "12345678000190").exists())
+            self.assertTrue(store.error_path(job.job_id, "123").exists())
+            self.assertEqual(
+                store.get_success_payloads(job.job_id),
+                [{"retorno": {"cnpj": "12345678000190"}}],
+            )
+            self.assertEqual(store.completed_cnpjs(job.job_id), {"12345678000190", "123"})
+            loaded = store.get_job(job.job_id)
+            self.assertEqual(loaded.processed, 2)
+            self.assertEqual(loaded.success, 1)
+            self.assertEqual(
+                loaded.errors,
+                [{"cnpj": "123", "message": "CNPJ deve conter 14 digitos"}],
+            )
+
+    def test_syncs_progress_from_artifacts_after_interrupted_write(self):
+        with TemporaryDirectory() as temp_dir:
+            store = JobStore(Path(temp_dir))
+            store.initialize()
+            job = store.create_job(["12345678000190"])
+            path = store.result_path(job.job_id, "12345678000190")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                '{"retorno": {"cnpj": "12345678000190"}}',
+                encoding="utf-8",
+            )
+
+            store.sync_progress_from_artifacts(job.job_id)
+
+            loaded = store.get_job(job.job_id)
+            self.assertEqual(loaded.processed, 1)
+            self.assertEqual(loaded.success, 1)
+            self.assertEqual(loaded.errors, [])
+
     def test_missing_job_raises_job_not_found(self):
         with TemporaryDirectory() as temp_dir:
             store = JobStore(Path(temp_dir))

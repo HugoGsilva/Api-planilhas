@@ -26,11 +26,12 @@ def process_job(
     fetcher: FetchCnpj = fetch_cnpj,
     sleeper: Sleeper = time.sleep,
 ) -> None:
-    rows: list[list[Any]] = []
     store.mark_processing(job_id)
 
     try:
+        store.sync_progress_from_artifacts(job_id)
         cnpjs = store.get_input_cnpjs(job_id)
+        completed = store.completed_cnpjs(job_id)
         delay = settings.directd_batch_delay_seconds
         fetched_once = False
 
@@ -38,19 +39,27 @@ def process_job(
             try:
                 cnpj = validate_cnpj(raw_cnpj)
             except ValueError as exc:
-                store.record_error(job_id, _error_cnpj(raw_cnpj), str(exc))
+                error_cnpj = _error_cnpj(raw_cnpj)
+                if error_cnpj not in completed:
+                    store.record_cnpj_error(job_id, error_cnpj, str(exc))
+                    completed.add(error_cnpj)
             else:
+                if cnpj in completed:
+                    continue
                 try:
                     if fetched_once and delay > 0:
                         sleeper(delay)
                     fetched_once = True
                     payload = fetcher(cnpj, settings)
                 except DirectDError as exc:
-                    store.record_error(job_id, cnpj, str(exc))
+                    store.record_cnpj_error(job_id, cnpj, str(exc))
                 else:
-                    rows.extend(extract_rows(payload))
-                    store.record_success(job_id)
+                    store.record_success_payload(job_id, cnpj, payload)
+                completed.add(cnpj)
 
+        rows: list[list[Any]] = []
+        for payload in store.get_success_payloads(job_id):
+            rows.extend(extract_rows(payload))
         write_xlsx(store.output_path(job_id), rows)
         store.mark_completed(job_id)
     except Exception as exc:

@@ -1106,6 +1106,32 @@ class BatchRoutesTest(unittest.TestCase):
         self.assertIn("finished_at", payload["jobs"][0])
         self.assertFalse(payload["jobs"][1]["download_ready"])
 
+    def test_resume_incomplete_jobs_runs_queued_and_processing_jobs(self):
+        from api_planilhas.jobs import JobStore
+        from api_planilhas.web import resume_incomplete_jobs
+
+        with TemporaryDirectory() as temp_dir:
+            storage_dir = Path(temp_dir)
+            store = JobStore(storage_dir)
+            store.initialize()
+            queued = store.create_job(["11111111000191"])
+            processing = store.create_job(["22222222000192"])
+            completed = store.create_job(["33333333000193"])
+            store.mark_processing(processing.job_id)
+            store.mark_completed(completed.job_id)
+            calls: list[str] = []
+
+            app = create_app()
+            settings = self._settings(storage_dir)
+            resume_incomplete_jobs(
+                app,
+                settings,
+                runner=lambda job_id, _store, _settings: calls.append(job_id),
+                run_async=False,
+            )
+
+        self.assertEqual(calls, [processing.job_id, queued.job_id])
+
     def test_batch_download_returns_completed_xlsx(self):
         from api_planilhas.converter import write_xlsx
         from api_planilhas.jobs import JobStore

@@ -10,6 +10,7 @@ API em FastAPI para consultar CNPJs na DirectD e gerar planilhas XLSX no modelo 
 - Consulta a API DirectD `CadastroPessoaJuridica`.
 - Gera XLSX para download com os campos do modelo DirectD.
 - Mantem historico visual e download dos lotes por 7 dias, com limpeza automatica.
+- Salva JSONs por CNPJ durante lotes e retoma jobs incompletos ao reiniciar.
 
 ## Modelo da planilha gerada
 
@@ -116,6 +117,13 @@ Mantenha um volume persistente em:
 ```
 
 Esse volume guarda jobs temporarios, status, historico visual e planilhas geradas ate a limpeza por `JOB_RETENTION_HOURS`. O padrao atual e 168 horas, ou 7 dias.
+
+Durante o processamento em lote, cada CNPJ concluido salva um JSON no volume:
+
+- `results/<cnpj>.json`: retorno bruto da DirectD para CNPJ consultado com sucesso.
+- `errors/<cnpj>.json`: erro individual de validacao ou consulta para aquele CNPJ.
+
+Se o container cair no meio do lote e subir novamente, o sistema procura jobs `queued` ou `processing`, pula os CNPJs que ja possuem `results/` ou `errors/`, processa somente os pendentes e gera a planilha final ao terminar.
 
 ## Testes
 

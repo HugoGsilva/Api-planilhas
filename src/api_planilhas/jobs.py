@@ -86,10 +86,18 @@ class JobStore:
     def output_path(self, job_id: str) -> Path:
         return self._job_dir(job_id) / "resultado.xlsx"
 
+    def result_path(self, job_id: str, cnpj: str) -> Path:
+        return self._job_dir(job_id) / "results" / f"{self._artifact_name(cnpj)}.json"
+
+    def error_path(self, job_id: str, cnpj: str) -> Path:
+        return self._job_dir(job_id) / "errors" / f"{self._artifact_name(cnpj)}.json"
+
     def create_job(self, cnpjs: list[str]) -> JobSnapshot:
         job_id = uuid.uuid4().hex
         job_dir = self._job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=False)
+        (job_dir / "results").mkdir()
+        (job_dir / "errors").mkdir()
         self.input_path(job_id).write_text(
             json.dumps(cnpjs, ensure_ascii=True),
             encoding="utf-8",
@@ -126,6 +134,80 @@ class JobStore:
             raise JobInputError(f"input.json invalido para job {job_id}")
         return [str(item) for item in data]
 
+    def record_success_payload(
+        self,
+        job_id: str,
+        cnpj: str,
+        payload: dict[str, Any],
+    ) -> None:
+        was_completed = self._artifact_name(cnpj) in self.completed_cnpjs(job_id)
+        self._write_json(self.result_path(job_id, cnpj), payload)
+        if not was_completed:
+            self.record_success(job_id)
+
+    def record_cnpj_error(self, job_id: str, cnpj: str, message: str) -> None:
+        was_completed = self._artifact_name(cnpj) in self.completed_cnpjs(job_id)
+        error = {"cnpj": cnpj, "message": message}
+        self._write_json(self.error_path(job_id, cnpj), error)
+        if not was_completed:
+            self._append_error(job_id, error, increment_processed=True)
+
+    def completed_cnpjs(self, job_id: str) -> set[str]:
+        self._load_row(job_id)
+        completed: set[str] = set()
+        for directory in (self._job_dir(job_id) / "results", self._job_dir(job_id) / "errors"):
+            if directory.exists():
+                completed.update(path.stem for path in directory.glob("*.json"))
+        return completed
+
+    def get_success_payloads(self, job_id: str) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
+        for raw_cnpj in self.get_input_cnpjs(job_id):
+            path = self.result_path(job_id, raw_cnpj)
+            if not path.exists():
+                path = self.result_path(job_id, self._artifact_name(raw_cnpj))
+            if path.exists():
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(payload, dict):
+                    payloads.append(payload)
+        return payloads
+
+    def sync_progress_from_artifacts(self, job_id: str) -> None:
+        self._load_row(job_id)
+        result_dir = self._job_dir(job_id) / "results"
+        error_dir = self._job_dir(job_id) / "errors"
+        success_count = len(list(result_dir.glob("*.json"))) if result_dir.exists() else 0
+        errors: list[dict[str, str]] = []
+        if error_dir.exists():
+            for path in sorted(error_dir.glob("*.json")):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(data, dict):
+                    errors.append(
+                        {
+                            "cnpj": str(data.get("cnpj", path.stem)),
+                            "message": str(data.get("message", "")),
+                        }
+                    )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE jobs
+                SET processed = ?,
+                    success = ?,
+                    errors_json = ?
+                WHERE job_id = ?
+                """,
+                (
+                    success_count + len(errors),
+                    success_count,
+                    json.dumps(errors, ensure_ascii=True),
+                    self._safe_job_id(job_id),
+                ),
+            )
+
     def get_job(self, job_id: str) -> JobSnapshot:
         row = self._load_row(job_id)
         return self._snapshot_from_row(row)
@@ -140,6 +222,18 @@ class JobStore:
                 LIMIT ?
                 """,
                 (limit,),
+            ).fetchall()
+        return [self._snapshot_from_row(row) for row in rows]
+
+    def list_incomplete_jobs(self) -> list[JobSnapshot]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM jobs
+                WHERE status IN ('queued', 'processing')
+                ORDER BY created_at DESC
+                """
             ).fetchall()
         return [self._snapshot_from_row(row) for row in rows]
 
@@ -305,6 +399,22 @@ class JobStore:
                     }
                 )
         return errors
+
+    def _artifact_name(self, cnpj: str) -> str:
+        digits = re.sub(r"\D+", "", str(cnpj))
+        if digits:
+            return digits
+        value = re.sub(r"[^A-Za-z0-9_-]+", "", str(cnpj))
+        return value or "sem_cnpj"
+
+    def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_suffix(".tmp")
+        temp_path.write_text(
+            json.dumps(payload, ensure_ascii=True),
+            encoding="utf-8",
+        )
+        temp_path.replace(path)
 
     def _now(self) -> str:
         return datetime.now(UTC).isoformat()
