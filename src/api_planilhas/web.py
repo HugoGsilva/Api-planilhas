@@ -24,7 +24,8 @@ from api_planilhas.batch_processor import process_job
 from api_planilhas.cnpj import normalize_cnpj, validate_cnpj
 from api_planilhas.config import AppSettings, get_settings
 from api_planilhas.converter import build_xlsx_bytes, extract_rows
-from api_planilhas.directd import DirectDError, fetch_cnpj
+from api_planilhas.directd import DirectDError, fetch_cnpj, fetch_cpf
+from api_planilhas.enrichment import enrich_cnpj_payload
 from api_planilhas.jobs import JobNotFoundError, JobStore
 from api_planilhas.xlsx_reader import (
     InvalidXlsxError,
@@ -142,7 +143,12 @@ def create_app() -> FastAPI:
             ) from exc
 
         try:
-            payload = fetch_cnpj(normalized, settings)
+            payload = enrich_cnpj_payload(
+                normalized,
+                settings,
+                fetcher=fetch_cnpj,
+                cpf_fetcher=fetch_cpf,
+            )
         except DirectDError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,

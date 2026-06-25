@@ -43,6 +43,9 @@ HEADERS = [
     "emails",
     "ultimaAtualizacaoPJ",
     "socios",
+    "Nome Socio",
+    "CPF Socio",
+    "Telefones",
 ]
 
 
@@ -180,6 +183,13 @@ def _format_socio_list(data: dict[str, Any]) -> str:
     return _join_values([_format_socio(item) for item in _dict_items(data, "socios")])
 
 
+def _format_socio_telefones(socio: dict[str, Any]) -> str:
+    telefones = socio.get("telefonesSocio")
+    if not isinstance(telefones, list):
+        return ""
+    return _join_values(telefones, separator=";")
+
+
 def _extract_csv_model_row(data: dict[str, Any]) -> list[Any]:
     return [
         _value(data, "cnpj"),
@@ -211,7 +221,22 @@ def _extract_csv_model_row(data: dict[str, Any]) -> list[Any]:
 
 def extract_rows(payload: Any) -> list[list[Any]]:
     data = _retorno(_as_dict(payload))
-    return [_extract_csv_model_row(data)]
+    base_row = _extract_csv_model_row(data)
+    socios = _dict_items(data, "socios")
+    if not socios:
+        return [base_row + ["", "", ""]]
+
+    rows = []
+    for socio in socios:
+        rows.append(
+            base_row
+            + [
+                _value(socio, "nome"),
+                _value(socio, "documento"),
+                _format_socio_telefones(socio),
+            ]
+        )
+    return rows
 
 
 def extract_row(payload: Any) -> list[Any]:

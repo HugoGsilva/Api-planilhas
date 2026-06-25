@@ -17,14 +17,20 @@ class DirectDError(RuntimeError):
 
 
 def build_cnpj_url(cnpj: str, settings: AppSettings) -> str:
-    query = urlencode({"CNPJ": cnpj, "Token": settings.directd_token})
+    query = urlencode({"CNPJ": cnpj, "TOKEN": settings.directd_token})
     base_url = settings.directd_base_url.rstrip("/")
     return f"{base_url}/api/CadastroPessoaJuridica?{query}"
 
 
-def fetch_cnpj(cnpj: str, settings: AppSettings) -> dict[str, Any]:
+def build_cpf_url(cpf: str, settings: AppSettings) -> str:
+    query = urlencode({"CPF": cpf, "TOKEN": settings.directd_token})
+    base_url = settings.directd_base_url.rstrip("/")
+    return f"{base_url}/api/CadastroPessoaFisica?{query}"
+
+
+def _fetch_json(url: str, settings: AppSettings) -> dict[str, Any]:
     request = Request(
-        build_cnpj_url(cnpj, settings),
+        url,
         headers={"Accept": "application/json"},
     )
     try:
@@ -50,3 +56,11 @@ def fetch_cnpj(cnpj: str, settings: AppSettings) -> dict[str, Any]:
         raise DirectDError("Resposta DirectD sem retorno esperado")
 
     return payload
+
+
+def fetch_cnpj(cnpj: str, settings: AppSettings) -> dict[str, Any]:
+    return _fetch_json(build_cnpj_url(cnpj, settings), settings)
+
+
+def fetch_cpf(cpf: str, settings: AppSettings) -> dict[str, Any]:
+    return _fetch_json(build_cpf_url(cpf, settings), settings)

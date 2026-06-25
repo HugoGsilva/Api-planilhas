@@ -8,6 +8,7 @@ API em FastAPI para consultar CNPJs na DirectD e gerar planilhas XLSX no modelo 
 - Permite consulta individual de CNPJ.
 - Permite envio de planilha XLSX em lote com uma coluna `CNPJ`.
 - Consulta a API DirectD `CadastroPessoaJuridica`.
+- Consulta a API DirectD `CadastroPessoaFisica` para telefones dos socios.
 - Gera XLSX para download com os campos do modelo DirectD.
 - Mantem historico visual e download dos lotes por 7 dias, com limpeza automatica.
 - Salva JSONs por CNPJ durante lotes e retoma jobs incompletos ao reiniciar.
@@ -17,7 +18,7 @@ API em FastAPI para consultar CNPJs na DirectD e gerar planilhas XLSX no modelo 
 As colunas geradas seguem o CSV modelo do cliente:
 
 ```text
-cnpj;razaoSocial;nomeFantasia;dataFundacao;cnaeCodigo;cnaeDescricao;cnaEsSecundarios;quantidadeFuncionarios;situacaoCadastral;naturezaJuridicaCodigo;naturezaJuridicaDescricao;naturezaJuridicaTipo;porte;faixaFuncionarios;faixaFaturamento;matriz;orgaoPublico;ramo;tipoEmpresa;telefones;enderecos;emails;ultimaAtualizacaoPJ;socios
+cnpj;razaoSocial;nomeFantasia;dataFundacao;cnaeCodigo;cnaeDescricao;cnaEsSecundarios;quantidadeFuncionarios;situacaoCadastral;naturezaJuridicaCodigo;naturezaJuridicaDescricao;naturezaJuridicaTipo;porte;faixaFuncionarios;faixaFaturamento;matriz;orgaoPublico;ramo;tipoEmpresa;telefones;enderecos;emails;ultimaAtualizacaoPJ;socios;Nome Socio;CPF Socio;Telefones
 ```
 
 Listas do JSON sao achatadas:
@@ -26,7 +27,12 @@ Listas do JSON sao achatadas:
 - `emails`: todos os `enderecoEmail`, separados por `, `.
 - `enderecos`: `logradouro, numero, complemento, bairro, cidade, uf, cep`; multiplos enderecos sao separados por ` | `.
 - `socios`: `nome (cargo)`, separados por `, `.
+- `Nome Socio`: nome do socio da linha.
+- `CPF Socio`: documento do socio da linha.
+- `Telefones`: telefones retornados na consulta CPF do socio, separados por `;`.
 - `matriz`: `Sim` para `true`, `Nao` para `false`, vazio quando ausente.
+
+Quando a empresa possui mais de um socio, a planilha gera uma linha por socio e repete os dados da empresa em cada linha. Quando nao ha socio, a empresa permanece na planilha com as colunas de socio vazias.
 
 ## Variaveis de ambiente
 

@@ -622,7 +622,7 @@ class DirectDClientTest(unittest.TestCase):
             url,
             (
                 "https://example.test/api/CadastroPessoaJuridica"
-                "?CNPJ=12345678000190&Token=secret-token"
+                "?CNPJ=12345678000190&TOKEN=secret-token"
             ),
         )
 
@@ -641,7 +641,28 @@ class DirectDClientTest(unittest.TestCase):
 
         self.assertEqual(
             url,
-            "https://example.test/api/CadastroPessoaJuridica?CNPJ=12345678000190&Token=secret-token",
+            "https://example.test/api/CadastroPessoaJuridica?CNPJ=12345678000190&TOKEN=secret-token",
+        )
+
+    def test_builds_cpf_url(self):
+        from api_planilhas.config import AppSettings
+        from api_planilhas.directd import build_cpf_url
+
+        settings = AppSettings(
+            directd_token="secret-token",
+            basic_user="admin",
+            basic_password="secret",
+            directd_base_url="https://example.test",
+        )
+
+        url = build_cpf_url("111.111.111-11", settings)
+
+        self.assertEqual(
+            url,
+            (
+                "https://example.test/api/CadastroPessoaFisica"
+                "?CPF=111.111.111-11&TOKEN=secret-token"
+            ),
         )
 
     def test_fetch_cnpj_returns_json_payload(self):
@@ -673,6 +694,41 @@ class DirectDClientTest(unittest.TestCase):
             payload = fetch_cnpj("12345678000190", settings)
 
         self.assertEqual(payload["retorno"]["cnpj"], "12345678000190")
+
+    def test_fetch_cpf_returns_json_payload(self):
+        import json
+
+        from api_planilhas.config import AppSettings
+        from api_planilhas.directd import fetch_cpf
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return json.dumps(
+                    {"retorno": {"telefones": [{"telefoneComDDD": "44999990000"}]}}
+                ).encode("utf-8")
+
+        settings = AppSettings(
+            directd_token="secret-token",
+            basic_user="admin",
+            basic_password="secret",
+            directd_base_url="https://example.test",
+        )
+
+        with patch("api_planilhas.directd.urlopen", return_value=FakeResponse()):
+            payload = fetch_cpf("111.111.111-11", settings)
+
+        self.assertEqual(
+            payload["retorno"]["telefones"][0]["telefoneComDDD"],
+            "44999990000",
+        )
 
     def test_fetch_cnpj_uses_configured_timeout(self):
         import json

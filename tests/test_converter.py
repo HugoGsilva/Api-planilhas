@@ -49,6 +49,9 @@ class ExtractRowTest(unittest.TestCase):
             "emails",
             "ultimaAtualizacaoPJ",
             "socios",
+            "Nome Socio",
+            "CPF Socio",
+            "Telefones",
         ]
 
         self.assertEqual(HEADERS, expected_headers)
@@ -165,6 +168,44 @@ class ExtractRowTest(unittest.TestCase):
             row[HEADERS.index("socios")],
             "JOAO SOCIO (SOCIO ADMINISTRADOR), MARIA SOCIA (SOCIA)",
         )
+        self.assertEqual(row[HEADERS.index("Nome Socio")], "JOAO SOCIO")
+        self.assertEqual(row[HEADERS.index("CPF Socio")], "12345678900")
+        self.assertEqual(row[HEADERS.index("Telefones")], "")
+
+    def test_extracts_one_row_per_socio_with_cpf_phones(self):
+        payload = {
+            "retorno": {
+                "cnpj": "00019000000133",
+                "razaoSocial": "EMPRESA TESTE LTDA",
+                "socios": [
+                    {
+                        "nome": "JOAO SOCIO",
+                        "documento": "111.111.111-11",
+                        "telefonesSocio": ["44999990000", "4430281122"],
+                    },
+                    {
+                        "nome": "MARIA SOCIA",
+                        "documento": "222.222.222-22",
+                        "telefonesSocio": [],
+                    },
+                ],
+            }
+        }
+
+        rows = extract_rows(payload)
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0][HEADERS.index("cnpj")], "00019000000133")
+        self.assertEqual(rows[1][HEADERS.index("cnpj")], "00019000000133")
+        self.assertEqual(rows[0][HEADERS.index("Nome Socio")], "JOAO SOCIO")
+        self.assertEqual(rows[0][HEADERS.index("CPF Socio")], "111.111.111-11")
+        self.assertEqual(
+            rows[0][HEADERS.index("Telefones")],
+            "44999990000;4430281122",
+        )
+        self.assertEqual(rows[1][HEADERS.index("Nome Socio")], "MARIA SOCIA")
+        self.assertEqual(rows[1][HEADERS.index("CPF Socio")], "222.222.222-22")
+        self.assertEqual(rows[1][HEADERS.index("Telefones")], "")
 
     def test_extracts_empty_cells_when_optional_json_fields_are_missing(self):
         payload = {
@@ -186,6 +227,9 @@ class ExtractRowTest(unittest.TestCase):
         self.assertEqual(row[HEADERS.index("emails")], "")
         self.assertEqual(row[HEADERS.index("enderecos")], "")
         self.assertEqual(row[HEADERS.index("socios")], "")
+        self.assertEqual(row[HEADERS.index("Nome Socio")], "")
+        self.assertEqual(row[HEADERS.index("CPF Socio")], "")
+        self.assertEqual(row[HEADERS.index("Telefones")], "")
         self.assertEqual(row[HEADERS.index("matriz")], "")
 
     def test_joins_multiple_addresses_with_pipe_separator(self):
@@ -252,6 +296,9 @@ class ExtractRowTest(unittest.TestCase):
         self.assertEqual(row[HEADERS.index("emails")], "")
         self.assertEqual(row[HEADERS.index("enderecos")], "")
         self.assertEqual(row[HEADERS.index("socios")], "")
+        self.assertEqual(row[HEADERS.index("Nome Socio")], "")
+        self.assertEqual(row[HEADERS.index("CPF Socio")], "")
+        self.assertEqual(row[HEADERS.index("Telefones")], "")
 
     def test_converts_directory_and_reports_invalid_json(self):
         with TemporaryDirectory() as temp_dir:
@@ -281,7 +328,7 @@ class ExtractRowTest(unittest.TestCase):
             result = convert_directory(source, output)
 
             self.assertEqual(result.processed_files, 1)
-            self.assertEqual(result.generated_rows, 1)
+            self.assertEqual(result.generated_rows, 2)
             self.assertEqual(len(result.errors), 1)
             self.assertEqual(result.errors[0].file_name, "invalido.json")
             self.assertTrue(result.output_path == output)
