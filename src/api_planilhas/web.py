@@ -22,10 +22,13 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from api_planilhas.batch_processor import process_job
 from api_planilhas.cnpj import normalize_cnpj, validate_cnpj
-from api_planilhas.config import AppSettings, get_settings
+from api_planilhas.config import (
+    CNPJ_QUERY_UNIT_PRICE_SOURCE,
+    AppSettings,
+    get_settings,
+)
 from api_planilhas.converter import build_xlsx_bytes, extract_rows
-from api_planilhas.directd import DirectDError, fetch_cnpj, fetch_cpf
-from api_planilhas.enrichment import enrich_cnpj_payload
+from api_planilhas.directd import DirectDError, fetch_cnpj
 from api_planilhas.jobs import JobNotFoundError, JobStore
 from api_planilhas.xlsx_reader import (
     InvalidXlsxError,
@@ -63,6 +66,8 @@ def _job_payload(job) -> dict:
         "download_ready": job.download_ready,
         "created_at": job.created_at,
         "finished_at": job.finished_at,
+        "unit_price_brl": job.unit_price_brl,
+        "cost_total_brl": job.cost_total_brl,
     }
 
 
@@ -143,12 +148,7 @@ def create_app() -> FastAPI:
             ) from exc
 
         try:
-            payload = enrich_cnpj_payload(
-                normalized,
-                settings,
-                fetcher=fetch_cnpj,
-                cpf_fetcher=fetch_cpf,
-            )
+            payload = fetch_cnpj(normalized, settings)
         except DirectDError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -166,7 +166,6 @@ def create_app() -> FastAPI:
     @app.post("/api/lotes", dependencies=[Depends(require_basic_auth)])
     async def criar_lote(
         request: Request,
-        background_tasks: BackgroundTasks,
         file: UploadFile,
         settings: AppSettings = Depends(get_settings),
     ) -> JSONResponse:
@@ -187,11 +186,44 @@ def create_app() -> FastAPI:
             ) from exc
 
         store = _get_job_store(request.app, settings)
-        job = store.create_job(cnpjs)
-        background_tasks.add_task(process_job, job.job_id, store, settings)
+        job = store.create_job(
+            cnpjs,
+            status="pending_confirmation",
+            unit_price_brl=settings.cnpj_query_unit_price_brl,
+        )
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
-            content={"job_id": job.job_id},
+            content={
+                **_job_payload(job),
+                "unit_price_source": CNPJ_QUERY_UNIT_PRICE_SOURCE,
+            },
+        )
+
+    @app.post("/api/lotes/{job_id}/confirmar", dependencies=[Depends(require_basic_auth)])
+    def confirmar_lote(
+        request: Request,
+        background_tasks: BackgroundTasks,
+        job_id: str,
+        settings: AppSettings = Depends(get_settings),
+    ) -> JSONResponse:
+        store = _get_job_store(request.app, settings)
+        try:
+            job = store.get_job(job_id)
+        except JobNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job nao encontrado",
+            ) from exc
+        if job.status != "pending_confirmation":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Lote nao esta aguardando confirmacao de custo",
+            )
+        store.mark_queued(job_id)
+        background_tasks.add_task(process_job, job_id, store, settings)
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content=_job_payload(store.get_job(job_id)),
         )
 
     @app.get("/api/lotes", dependencies=[Depends(require_basic_auth)])
@@ -200,7 +232,10 @@ def create_app() -> FastAPI:
         settings: AppSettings = Depends(get_settings),
     ) -> dict:
         store = _get_job_store(request.app, settings)
-        return {"jobs": [_job_payload(job) for job in store.list_jobs()]}
+        return {
+            "jobs": [_job_payload(job) for job in store.list_jobs()],
+            "history_cost_total_brl": store.total_history_cost_brl(),
+        }
 
     @app.get("/api/lotes/{job_id}", dependencies=[Depends(require_basic_auth)])
     def consultar_lote(

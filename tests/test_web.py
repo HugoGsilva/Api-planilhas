@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import unittest
+from decimal import Decimal
 from html import unescape
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -18,6 +19,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from api_planilhas.config import (
+    DEFAULT_CNPJ_QUERY_UNIT_PRICE_BRL,
     DEFAULT_DIRECTD_BASE_URL,
     DEFAULT_DIRECTD_TIMEOUT_SECONDS,
     DEFAULT_DIRECTD_BATCH_DELAY_SECONDS,
@@ -83,6 +85,10 @@ class ConfigAndSecurityTest(unittest.TestCase):
             settings.directd_batch_delay_seconds,
             DEFAULT_DIRECTD_BATCH_DELAY_SECONDS,
         )
+        self.assertEqual(
+            settings.cnpj_query_unit_price_brl,
+            DEFAULT_CNPJ_QUERY_UNIT_PRICE_BRL,
+        )
 
     def test_get_settings_reads_batch_env_overrides(self):
         os.environ["DIRECTD_TOKEN"] = "token-for-test"
@@ -92,6 +98,7 @@ class ConfigAndSecurityTest(unittest.TestCase):
         os.environ["JOB_RETENTION_HOURS"] = "72"
         os.environ["UPLOAD_MAX_MB"] = "250"
         os.environ["DIRECTD_BATCH_DELAY_SECONDS"] = "0.5"
+        os.environ["CNPJ_QUERY_UNIT_PRICE_BRL"] = "1.23"
 
         settings = get_settings()
 
@@ -99,6 +106,7 @@ class ConfigAndSecurityTest(unittest.TestCase):
         self.assertEqual(settings.job_retention_hours, 72.0)
         self.assertEqual(settings.upload_max_mb, 250)
         self.assertEqual(settings.directd_batch_delay_seconds, 0.5)
+        self.assertEqual(settings.cnpj_query_unit_price_brl, Decimal("1.23"))
 
     def test_get_settings_rejects_invalid_upload_max_mb(self):
         os.environ["DIRECTD_TOKEN"] = "token-for-test"
@@ -481,6 +489,9 @@ vm.runInNewContext({script!r}, context);
         self.assertIn("Consultar status", page)
         self.assertIn("CNPJs com erro", page)
         self.assertIn("downloadBatch", page)
+        self.assertIn("confirmCostButton", page)
+        self.assertIn("Confirmar custo", page)
+        self.assertIn("formatCurrency", page)
         self.assertIn("Historico de lotes", page)
         self.assertIn("historyRows", page)
         self.assertIn("loadBatchHistory", page)
@@ -497,7 +508,18 @@ let statusCalls = 0;
 context.fetch = async (url, options = {}) => {
   calls.push({ url, method: options.method || "GET" });
   if (url === "/api/lotes") {
-    return { ok: true, json: async () => ({ job_id: "job-123" }) };
+    return {
+      ok: true,
+      json: async () => ({
+        job_id: "job-123",
+        status: "pending_confirmation",
+        total: 2,
+        cost_total_brl: "0.32",
+      }),
+    };
+  }
+  if (url === "/api/lotes/job-123/confirmar") {
+    return { ok: true, json: async () => ({ job_id: "job-123", status: "queued" }) };
   }
   if (url === "/api/lotes/job-123") {
     statusCalls += 1;
@@ -510,6 +532,7 @@ context.fetch = async (url, options = {}) => {
         success: statusCalls === 1 ? 1 : 2,
         errors: [],
         download_ready: statusCalls > 1,
+        cost_total_brl: "0.32",
       }),
     };
   }
@@ -520,7 +543,22 @@ await context.submitBatch({ preventDefault() {} });
 
 assert.deepStrictEqual(
   calls.map((call) => [call.method, call.url]),
-  [["POST", "/api/lotes"], ["GET", "/api/lotes/job-123"], ["GET", "/api/lotes"]]
+  [["POST", "/api/lotes"], ["GET", "/api/lotes"]]
+);
+assert.strictEqual(get("confirmCostButton").classList.contains("hidden"), false);
+assert.match(get("batchStatus").textContent, /Custo calculado/);
+
+await context.confirmBatchCost();
+
+assert.deepStrictEqual(
+  calls.map((call) => [call.method, call.url]),
+  [
+    ["POST", "/api/lotes"],
+    ["GET", "/api/lotes"],
+    ["POST", "/api/lotes/job-123/confirmar"],
+    ["GET", "/api/lotes/job-123"],
+    ["GET", "/api/lotes"],
+  ]
 );
 assert.strictEqual(intervalHandles.length, 2);
 const batchInterval = intervalHandles.find((item) => item.delay === 3000);
@@ -559,9 +597,18 @@ assert.strictEqual(get("batchStatus").className, "status error");
 
 context.fetch = async (url) => {
   assert.strictEqual(url, "/api/lotes");
-  return { ok: true, json: async () => ({ job_id: "job-456" }) };
+  return {
+    ok: true,
+    json: async () => ({
+      job_id: "job-456",
+      status: "pending_confirmation",
+      total: 1,
+      cost_total_brl: "0.16",
+    }),
+  };
 };
 await context.submitBatch({ preventDefault() {} });
+assert.strictEqual(get("confirmCostButton").classList.contains("hidden"), false);
 context.downloadBatch();
 
 assert.strictEqual(context.window.location.href, "/api/lotes/job-456/download");
@@ -584,15 +631,18 @@ context.fetch = async (url) => {
         success: 1,
         download_ready: true,
         created_at: "2026-06-17T00:00:00+00:00",
+        cost_total_brl: "0.16",
         errors: [{ cnpj: "12345678000190", message: "DirectD indisponivel" }],
       }],
+      history_cost_total_brl: "0.16",
     }),
   };
 };
 
 await context.loadBatchHistory();
 
-const button = get("historyRows").children[0].children[3].children[0];
+assert.match(get("historyStatus").textContent, /Total acumulado/);
+const button = get("historyRows").children[0].children[4].children[0];
 assert.strictEqual(button.textContent, "Ver 1 erro");
 button.click();
 
@@ -995,6 +1045,7 @@ class BatchRoutesTest(unittest.TestCase):
             directd_base_url="https://example.test",
             job_storage_dir=storage_dir,
             upload_max_mb=upload_max_mb,
+            cnpj_query_unit_price_brl=Decimal("0.16"),
         )
 
     def _client(self, storage_dir: Path, upload_max_mb: int = 100) -> TestClient:
@@ -1132,21 +1183,26 @@ class BatchRoutesTest(unittest.TestCase):
 
         with TemporaryDirectory() as temp_dir:
             with patch.dict(os.environ, env, clear=True):
-                with patch("api_planilhas.web.process_job"):
-                    response = self._client(Path(temp_dir)).post(
-                        "/api/lotes",
-                        files={
-                            "file": (
-                                "entrada.xlsx",
-                                content,
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            )
-                        },
-                        headers=_basic_header(),
-                    )
+                response = self._client(Path(temp_dir)).post(
+                    "/api/lotes",
+                    files={
+                        "file": (
+                            "entrada.xlsx",
+                            content,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+                    },
+                    headers=_basic_header(),
+                )
 
         self.assertEqual(response.status_code, 202)
-        self.assertIn("job_id", response.json())
+        payload = response.json()
+        self.assertIn("job_id", payload)
+        self.assertEqual(payload["status"], "pending_confirmation")
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["unit_price_brl"], "0.16")
+        self.assertEqual(payload["cost_total_brl"], "0.16")
+        self.assertIn("unit_price_source", payload)
 
     def test_batch_status_and_download_for_created_job(self):
         from tests.test_xlsx_reader import build_minimal_xlsx
@@ -1160,7 +1216,7 @@ class BatchRoutesTest(unittest.TestCase):
 
         with TemporaryDirectory() as temp_dir:
             with patch.dict(os.environ, env, clear=True):
-                with patch("api_planilhas.web.process_job"):
+                with patch("api_planilhas.web.process_job") as process_job:
                     client = self._client(Path(temp_dir))
                     create_response = client.post(
                         "/api/lotes",
@@ -1179,6 +1235,14 @@ class BatchRoutesTest(unittest.TestCase):
                         f"/api/lotes/{job_id}",
                         headers=_basic_header(),
                     )
+                    confirm_response = client.post(
+                        f"/api/lotes/{job_id}/confirmar",
+                        headers=_basic_header(),
+                    )
+                    confirmed_status_response = client.get(
+                        f"/api/lotes/{job_id}",
+                        headers=_basic_header(),
+                    )
                     download_response = client.get(
                         f"/api/lotes/{job_id}/download",
                         headers=_basic_header(),
@@ -1190,12 +1254,16 @@ class BatchRoutesTest(unittest.TestCase):
 
         self.assertEqual(status_response.status_code, 200)
         self.assertEqual(status_response.json()["job_id"], job_id)
-        self.assertEqual(status_response.json()["status"], "queued")
+        self.assertEqual(status_response.json()["status"], "pending_confirmation")
         self.assertEqual(status_response.json()["total"], 1)
+        self.assertEqual(status_response.json()["cost_total_brl"], "0.16")
         self.assertEqual(status_response.json()["processed"], 0)
         self.assertEqual(status_response.json()["success"], 0)
         self.assertEqual(status_response.json()["errors"], [])
         self.assertFalse(status_response.json()["download_ready"])
+        self.assertEqual(confirm_response.status_code, 202)
+        self.assertEqual(confirmed_status_response.json()["status"], "queued")
+        process_job.assert_called_once()
         self.assertEqual(download_response.status_code, 409)
         self.assertEqual(missing_response.status_code, 404)
 
@@ -1213,8 +1281,8 @@ class BatchRoutesTest(unittest.TestCase):
             storage_dir = Path(temp_dir)
             store = JobStore(storage_dir)
             store.initialize()
-            queued = store.create_job(["11111111000191"])
-            completed = store.create_job(["22222222000192"])
+            queued = store.create_job(["11111111000191"], unit_price_brl=Decimal("0.16"))
+            completed = store.create_job(["22222222000192"], unit_price_brl=Decimal("0.16"))
             write_xlsx(store.output_path(completed.job_id), [["EMPRESA TESTE"]])
             store.mark_completed(completed.job_id)
 
@@ -1225,8 +1293,10 @@ class BatchRoutesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual([item["job_id"] for item in payload["jobs"]], [completed.job_id, queued.job_id])
+        self.assertEqual(payload["history_cost_total_brl"], "0.32")
         self.assertTrue(payload["jobs"][0]["download_ready"])
         self.assertEqual(payload["jobs"][0]["status"], "completed")
+        self.assertEqual(payload["jobs"][0]["cost_total_brl"], "0.16")
         self.assertIn("created_at", payload["jobs"][0])
         self.assertIn("finished_at", payload["jobs"][0])
         self.assertFalse(payload["jobs"][1]["download_ready"])

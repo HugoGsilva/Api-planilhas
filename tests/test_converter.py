@@ -169,7 +169,7 @@ class ExtractRowTest(unittest.TestCase):
             "JOAO SOCIO (SOCIO ADMINISTRADOR), MARIA SOCIA (SOCIA)",
         )
         self.assertEqual(row[HEADERS.index("Nome Socio")], "JOAO SOCIO")
-        self.assertEqual(row[HEADERS.index("CPF Socio")], "12345678900")
+        self.assertEqual(row[HEADERS.index("CPF Socio")], "")
         self.assertEqual(row[HEADERS.index("Telefones")], "")
 
     def test_extracts_one_row_per_socio_with_cpf_phones(self):
@@ -181,12 +181,10 @@ class ExtractRowTest(unittest.TestCase):
                     {
                         "nome": "JOAO SOCIO",
                         "documento": "111.111.111-11",
-                        "telefonesSocio": ["44999990000", "4430281122"],
                     },
                     {
                         "nome": "MARIA SOCIA",
                         "documento": "222.222.222-22",
-                        "telefonesSocio": [],
                     },
                 ],
             }
@@ -198,13 +196,10 @@ class ExtractRowTest(unittest.TestCase):
         self.assertEqual(rows[0][HEADERS.index("cnpj")], "00019000000133")
         self.assertEqual(rows[1][HEADERS.index("cnpj")], "00019000000133")
         self.assertEqual(rows[0][HEADERS.index("Nome Socio")], "JOAO SOCIO")
-        self.assertEqual(rows[0][HEADERS.index("CPF Socio")], "111.111.111-11")
-        self.assertEqual(
-            rows[0][HEADERS.index("Telefones")],
-            "44999990000;4430281122",
-        )
+        self.assertEqual(rows[0][HEADERS.index("CPF Socio")], "")
+        self.assertEqual(rows[0][HEADERS.index("Telefones")], "")
         self.assertEqual(rows[1][HEADERS.index("Nome Socio")], "MARIA SOCIA")
-        self.assertEqual(rows[1][HEADERS.index("CPF Socio")], "222.222.222-22")
+        self.assertEqual(rows[1][HEADERS.index("CPF Socio")], "")
         self.assertEqual(rows[1][HEADERS.index("Telefones")], "")
 
     def test_extracts_empty_cells_when_optional_json_fields_are_missing(self):

@@ -2,6 +2,7 @@ import sys
 import threading
 import unittest
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -30,11 +31,32 @@ class JobStoreTest(unittest.TestCase):
             self.assertEqual(loaded.success, 0)
             self.assertEqual(loaded.errors, [])
             self.assertFalse(loaded.download_ready)
+            self.assertEqual(loaded.unit_price_brl, "0.00")
+            self.assertEqual(loaded.cost_total_brl, "0.00")
             self.assertEqual(
                 store.get_input_cnpjs(job.job_id),
                 ["12345678000190", "11222333000144"],
             )
             self.assertTrue(store.input_path(job.job_id).exists())
+
+    def test_creates_pending_confirmation_job_with_cost(self):
+        with TemporaryDirectory() as temp_dir:
+            store = JobStore(Path(temp_dir))
+            store.initialize()
+
+            job = store.create_job(
+                ["12345678000190", "11222333000144"],
+                status="pending_confirmation",
+                unit_price_brl=Decimal("1.23"),
+            )
+            loaded = store.get_job(job.job_id)
+
+            self.assertEqual(loaded.status, "pending_confirmation")
+            self.assertEqual(loaded.unit_price_brl, "1.23")
+            self.assertEqual(loaded.cost_total_brl, "2.46")
+
+            store.mark_queued(job.job_id)
+            self.assertEqual(store.get_job(job.job_id).status, "queued")
 
     def test_updates_progress_and_records_error(self):
         with TemporaryDirectory() as temp_dir:
@@ -150,6 +172,18 @@ class JobStoreTest(unittest.TestCase):
             self.assertIsNotNone(jobs[0].finished_at)
             self.assertIsNotNone(jobs[1].created_at)
             self.assertIsNone(jobs[1].finished_at)
+
+    def test_sums_history_cost(self):
+        with TemporaryDirectory() as temp_dir:
+            store = JobStore(Path(temp_dir))
+            store.initialize()
+            store.create_job(["11111111000191"], unit_price_brl=Decimal("1.50"))
+            store.create_job(
+                ["22222222000192", "33333333000193"],
+                unit_price_brl=Decimal("2.25"),
+            )
+
+            self.assertEqual(store.total_history_cost_brl(), "6.00")
 
     def test_persists_result_and_error_artifacts_by_cnpj(self):
         with TemporaryDirectory() as temp_dir:

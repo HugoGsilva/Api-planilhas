@@ -183,13 +183,6 @@ def _format_socio_list(data: dict[str, Any]) -> str:
     return _join_values([_format_socio(item) for item in _dict_items(data, "socios")])
 
 
-def _format_socio_telefones(socio: dict[str, Any]) -> str:
-    telefones = socio.get("telefonesSocio")
-    if not isinstance(telefones, list):
-        return ""
-    return _join_values(telefones, separator=";")
-
-
 def _extract_csv_model_row(data: dict[str, Any]) -> list[Any]:
     return [
         _value(data, "cnpj"),
@@ -232,8 +225,8 @@ def extract_rows(payload: Any) -> list[list[Any]]:
             base_row
             + [
                 _value(socio, "nome"),
-                _value(socio, "documento"),
-                _format_socio_telefones(socio),
+                "",
+                "",
             ]
         )
     return rows

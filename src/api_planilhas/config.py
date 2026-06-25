@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,6 +16,12 @@ DEFAULT_JOB_RETENTION_HOURS = 168.0
 DEFAULT_UPLOAD_MAX_MB = 100
 DEFAULT_DIRECTD_BATCH_DELAY_SECONDS = 0.0
 DEFAULT_JOB_STORAGE_DIR = Path("storage/jobs")
+DEFAULT_CNPJ_QUERY_UNIT_PRICE_BRL = Decimal("0.16")
+# Fixed contracted price per CadastroPessoaJuridica query. Keep this value in
+# one place so future price changes are easy to update.
+CNPJ_QUERY_UNIT_PRICE_SOURCE = (
+    "Preco fixo configurado para CadastroPessoaJuridica: R$ 0,16 por CNPJ."
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +35,7 @@ class AppSettings:
     job_retention_hours: float = DEFAULT_JOB_RETENTION_HOURS
     upload_max_mb: int = DEFAULT_UPLOAD_MAX_MB
     directd_batch_delay_seconds: float = DEFAULT_DIRECTD_BATCH_DELAY_SECONDS
+    cnpj_query_unit_price_brl: Decimal = DEFAULT_CNPJ_QUERY_UNIT_PRICE_BRL
 
 
 def _required(name: str) -> str:
@@ -76,6 +84,19 @@ def _optional_non_negative_float(name: str, default: float) -> float:
     return parsed
 
 
+def _optional_non_negative_decimal(name: str, default: Decimal) -> Decimal:
+    value = os.getenv(name, "").strip().replace(",", ".")
+    if not value:
+        return default
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as exc:
+        raise RuntimeError(f"{name} must be a non-negative decimal") from exc
+    if parsed < 0:
+        raise RuntimeError(f"{name} must be a non-negative decimal")
+    return parsed.quantize(Decimal("0.01"))
+
+
 def _optional_path(name: str, default: Path) -> Path:
     value = os.getenv(name, "").strip()
     if not value:
@@ -113,5 +134,9 @@ def get_settings() -> AppSettings:
         directd_batch_delay_seconds=_optional_non_negative_float(
             "DIRECTD_BATCH_DELAY_SECONDS",
             DEFAULT_DIRECTD_BATCH_DELAY_SECONDS,
+        ),
+        cnpj_query_unit_price_brl=_optional_non_negative_decimal(
+            "CNPJ_QUERY_UNIT_PRICE_BRL",
+            DEFAULT_CNPJ_QUERY_UNIT_PRICE_BRL,
         ),
     )

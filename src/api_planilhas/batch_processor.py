@@ -7,8 +7,7 @@ from typing import Any
 from api_planilhas.cnpj import normalize_cnpj, validate_cnpj
 from api_planilhas.config import AppSettings
 from api_planilhas.converter import extract_rows, write_xlsx
-from api_planilhas.directd import DirectDError, fetch_cnpj, fetch_cpf
-from api_planilhas.enrichment import FetchCpf, enrich_cnpj_payload
+from api_planilhas.directd import DirectDError, fetch_cnpj
 from api_planilhas.jobs import JobStore
 
 
@@ -25,7 +24,6 @@ def process_job(
     store: JobStore,
     settings: AppSettings,
     fetcher: FetchCnpj = fetch_cnpj,
-    cpf_fetcher: FetchCpf = fetch_cpf,
     sleeper: Sleeper = time.sleep,
 ) -> None:
     store.mark_processing(job_id)
@@ -36,21 +34,6 @@ def process_job(
         completed = store.completed_cnpjs(job_id)
         delay = settings.directd_batch_delay_seconds
         fetched_once = False
-        cpf_cache: dict[str, list[str]] = {}
-
-        def sleep_before_next_fetch() -> None:
-            nonlocal fetched_once
-            if fetched_once and delay > 0:
-                sleeper(delay)
-            fetched_once = True
-
-        def delayed_fetch_cnpj(cnpj: str, settings: AppSettings) -> dict[str, Any]:
-            sleep_before_next_fetch()
-            return fetcher(cnpj, settings)
-
-        def delayed_fetch_cpf(cpf: str, settings: AppSettings) -> dict[str, Any]:
-            sleep_before_next_fetch()
-            return cpf_fetcher(cpf, settings)
 
         for raw_cnpj in cnpjs:
             try:
@@ -64,13 +47,10 @@ def process_job(
                 if cnpj in completed:
                     continue
                 try:
-                    payload = enrich_cnpj_payload(
-                        cnpj,
-                        settings,
-                        fetcher=delayed_fetch_cnpj,
-                        cpf_fetcher=delayed_fetch_cpf,
-                        cpf_cache=cpf_cache,
-                    )
+                    if fetched_once and delay > 0:
+                        sleeper(delay)
+                    fetched_once = True
+                    payload = fetcher(cnpj, settings)
                 except DirectDError as exc:
                     store.record_cnpj_error(job_id, cnpj, str(exc))
                 else:

@@ -8,8 +8,8 @@ API em FastAPI para consultar CNPJs na DirectD e gerar planilhas XLSX no modelo 
 - Permite consulta individual de CNPJ.
 - Permite envio de planilha XLSX em lote com uma coluna `CNPJ`.
 - Consulta a API DirectD `CadastroPessoaJuridica`.
-- Consulta a API DirectD `CadastroPessoaFisica` para telefones dos socios.
 - Gera XLSX para download com os campos do modelo DirectD.
+- Calcula custo de lote somente por CNPJ antes do processamento e exige confirmacao.
 - Mantem historico visual e download dos lotes por 7 dias, com limpeza automatica.
 - Salva JSONs por CNPJ durante lotes e retoma jobs incompletos ao reiniciar.
 
@@ -28,11 +28,23 @@ Listas do JSON sao achatadas:
 - `enderecos`: `logradouro, numero, complemento, bairro, cidade, uf, cep`; multiplos enderecos sao separados por ` | `.
 - `socios`: `nome (cargo)`, separados por `, `.
 - `Nome Socio`: nome do socio da linha.
-- `CPF Socio`: documento do socio da linha.
-- `Telefones`: telefones retornados na consulta CPF do socio, separados por `;`.
+- `CPF Socio`: mantido no template, mas fica vazio porque a consulta CPF esta desativada.
+- `Telefones`: mantido no template, mas fica vazio porque a consulta CPF esta desativada.
 - `matriz`: `Sim` para `true`, `Nao` para `false`, vazio quando ausente.
 
 Quando a empresa possui mais de um socio, a planilha gera uma linha por socio e repete os dados da empresa em cada linha. Quando nao ha socio, a empresa permanece na planilha com as colunas de socio vazias.
+
+## Custo de lotes
+
+Ao subir uma planilha em lote, o sistema le a quantidade de CNPJs e calcula o custo antes de processar:
+
+```text
+custo = quantidade de CNPJs x CNPJ_QUERY_UNIT_PRICE_BRL
+```
+
+O processamento so inicia apos clicar em `Confirmar custo`.
+
+O valor padrao de `CNPJ_QUERY_UNIT_PRICE_BRL` e `0.16`, ou R$ 0,16 por CNPJ.
 
 ## Variaveis de ambiente
 
@@ -49,6 +61,7 @@ Opcionais:
 - `DIRECTD_BASE_URL`: padrao `https://apiv3.directd.com.br`.
 - `DIRECTD_TIMEOUT_SECONDS`: padrao `20`.
 - `DIRECTD_BATCH_DELAY_SECONDS`: padrao `0`.
+- `CNPJ_QUERY_UNIT_PRICE_BRL`: preco unitario da consulta CNPJ em reais; padrao `0.16`.
 - `JOB_STORAGE_DIR`: padrao `storage/jobs`.
 - `JOB_RETENTION_HOURS`: padrao `168` (7 dias).
 - `UPLOAD_MAX_MB`: padrao `100`.

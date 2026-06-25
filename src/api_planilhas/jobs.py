@@ -7,6 +7,7 @@ import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,8 @@ class JobSnapshot:
     download_ready: bool
     created_at: str
     finished_at: str | None
+    unit_price_brl: str
+    cost_total_brl: str
 
 
 class JobNotFoundError(KeyError):
@@ -62,10 +65,14 @@ class JobStore:
                     success INTEGER NOT NULL,
                     errors_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    finished_at TEXT
+                    finished_at TEXT,
+                    unit_price_brl TEXT NOT NULL DEFAULT '0.00',
+                    cost_total_brl TEXT NOT NULL DEFAULT '0.00'
                 )
                 """
             )
+            self._ensure_column(connection, "unit_price_brl", "TEXT NOT NULL DEFAULT '0.00'")
+            self._ensure_column(connection, "cost_total_brl", "TEXT NOT NULL DEFAULT '0.00'")
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path, factory=_ClosingConnection)
@@ -92,7 +99,12 @@ class JobStore:
     def error_path(self, job_id: str, cnpj: str) -> Path:
         return self._job_dir(job_id) / "errors" / f"{self._artifact_name(cnpj)}.json"
 
-    def create_job(self, cnpjs: list[str]) -> JobSnapshot:
+    def create_job(
+        self,
+        cnpjs: list[str],
+        status: str = "queued",
+        unit_price_brl: Decimal = Decimal("0.00"),
+    ) -> JobSnapshot:
         job_id = uuid.uuid4().hex
         job_dir = self._job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=False)
@@ -113,11 +125,20 @@ class JobStore:
                     success,
                     errors_json,
                     created_at,
-                    finished_at
+                    finished_at,
+                    unit_price_brl,
+                    cost_total_brl
                 )
-                VALUES (?, 'queued', ?, 0, 0, '[]', ?, NULL)
+                VALUES (?, ?, ?, 0, 0, '[]', ?, NULL, ?, ?)
                 """,
-                (job_id, len(cnpjs), self._now()),
+                (
+                    job_id,
+                    status,
+                    len(cnpjs),
+                    self._now(),
+                    self._money_text(unit_price_brl),
+                    self._money_text(unit_price_brl * len(cnpjs)),
+                ),
             )
         return self.get_job(job_id)
 
@@ -236,6 +257,18 @@ class JobStore:
                 """
             ).fetchall()
         return [self._snapshot_from_row(row) for row in rows]
+
+    def total_history_cost_brl(self, limit: int = 50) -> str:
+        jobs = self.list_jobs(limit=limit)
+        total = sum((Decimal(job.cost_total_brl) for job in jobs), Decimal("0.00"))
+        return self._money_text(total)
+
+    def mark_queued(self, job_id: str) -> None:
+        self._execute_existing(
+            "UPDATE jobs SET status = 'queued' WHERE job_id = ?",
+            (self._safe_job_id(job_id),),
+            job_id,
+        )
 
     def mark_processing(self, job_id: str) -> None:
         self._execute_existing(
@@ -383,6 +416,8 @@ class JobStore:
             download_ready=status == "completed" and self.output_path(job_id).exists(),
             created_at=row["created_at"],
             finished_at=row["finished_at"],
+            unit_price_brl=row["unit_price_brl"],
+            cost_total_brl=row["cost_total_brl"],
         )
 
     def _decode_errors(self, errors_json: str) -> list[dict[str, str]]:
@@ -418,3 +453,19 @@ class JobStore:
 
     def _now(self) -> str:
         return datetime.now(UTC).isoformat()
+
+    def _ensure_column(
+        self,
+        connection: sqlite3.Connection,
+        column: str,
+        definition: str,
+    ) -> None:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(jobs)").fetchall()
+        }
+        if column not in columns:
+            connection.execute(f"ALTER TABLE jobs ADD COLUMN {column} {definition}")
+
+    def _money_text(self, value: Decimal) -> str:
+        return str(value.quantize(Decimal("0.01")))

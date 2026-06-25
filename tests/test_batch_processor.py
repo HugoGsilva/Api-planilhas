@@ -1,4 +1,3 @@
-import json
 import sys
 import unittest
 import zipfile
@@ -114,13 +113,12 @@ class BatchProcessorTest(unittest.TestCase):
             self.assertIn("EMPRESA 11222333000144", sheet_xml)
             self.assertIn("EMPRESA 12345678000190", sheet_xml)
 
-    def test_enriches_socios_with_cpf_phones_before_saving_payload(self):
+    def test_does_not_fetch_cpf_when_processing_socios(self):
         with TemporaryDirectory() as temp_dir:
             store = JobStore(Path(temp_dir))
             store.initialize()
             job = store.create_job(["12.345.678/0001-90"])
             fetched_cnpjs: list[str] = []
-            fetched_cpfs: list[str] = []
             sleeps: list[float] = []
 
             def fake_fetch_cnpj(cnpj, settings):
@@ -145,50 +143,23 @@ class BatchProcessorTest(unittest.TestCase):
                     }
                 }
 
-            def fake_fetch_cpf(cpf, settings):
-                fetched_cpfs.append(cpf)
-                if cpf == "111.111.111-11":
-                    return {
-                        "retorno": {
-                            "telefones": [
-                                {"telefoneComDDD": "44999990000"},
-                                {"telefoneComDDD": "4430281122"},
-                            ]
-                        }
-                    }
-                return {"retorno": {"telefones": []}}
-
             process_job(
                 job.job_id,
                 store,
                 _settings(),
                 fetcher=fake_fetch_cnpj,
-                cpf_fetcher=fake_fetch_cpf,
                 sleeper=sleeps.append,
             )
 
             self.assertEqual(fetched_cnpjs, ["12345678000190"])
-            self.assertEqual(fetched_cpfs, ["111.111.111-11", "222.222.222-22"])
-            self.assertEqual(sleeps, [0.25, 0.25])
-
-            saved_payload = json.loads(
-                store.result_path(job.job_id, "12345678000190").read_text(
-                    encoding="utf-8"
-                )
-            )
-            socios = saved_payload["retorno"]["socios"]
-            self.assertEqual(
-                socios[0]["telefonesSocio"],
-                ["44999990000", "4430281122"],
-            )
-            self.assertEqual(socios[1]["telefonesSocio"], [])
+            self.assertEqual(sleeps, [])
 
             with zipfile.ZipFile(store.output_path(job.job_id)) as archive:
                 sheet_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
 
             self.assertIn("JOAO SOCIO", sheet_xml)
             self.assertIn("MARIA SOCIA", sheet_xml)
-            self.assertIn("44999990000;4430281122", sheet_xml)
+            self.assertNotIn("44999990000", sheet_xml)
 
     def test_marks_job_failed_on_unexpected_structural_failure(self):
         with TemporaryDirectory() as temp_dir:

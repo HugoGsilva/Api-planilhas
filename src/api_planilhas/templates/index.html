@@ -212,6 +212,9 @@
           <input id="batchFile" name="file" type="file" accept=".xlsx" required />
           <div class="actions">
             <button type="submit" id="batchButton">Enviar lote</button>
+            <button id="confirmCostButton" type="button" class="hidden">
+              Confirmar custo
+            </button>
             <button id="batchDownloadButton" type="button" class="hidden secondary">
               Baixar planilha do lote
             </button>
@@ -240,6 +243,7 @@
               <th>Data</th>
               <th>Status</th>
               <th>Progresso</th>
+              <th>Custo</th>
               <th>Erros</th>
               <th>Arquivo</th>
             </tr>
@@ -258,6 +262,7 @@
       const batchForm = document.getElementById("batchForm");
       const batchFileInput = document.getElementById("batchFile");
       const batchButton = document.getElementById("batchButton");
+      const confirmCostButton = document.getElementById("confirmCostButton");
       const batchStatus = document.getElementById("batchStatus");
       const batchDownloadButton = document.getElementById("batchDownloadButton");
       const batchErrorsSection = document.getElementById("batchErrorsSection");
@@ -316,7 +321,15 @@
         return date.toLocaleString("pt-BR");
       }
 
-      function renderBatchHistory(jobs) {
+      function formatCurrency(value) {
+        const number = Number(value || 0);
+        return number.toLocaleString("pt-BR", {
+          style: "currency",
+          currency: "BRL",
+        });
+      }
+
+      function renderBatchHistory(jobs, totalCost) {
         historyRows.textContent = "";
         historyStatus.className = "status";
 
@@ -325,18 +338,21 @@
           return;
         }
 
-        historyStatus.textContent = `${jobs.length} lote(s) nos ultimos 7 dias.`;
+        historyStatus.textContent =
+          `${jobs.length} lote(s) nos ultimos 7 dias. Total acumulado: ${formatCurrency(totalCost)}.`;
         for (const job of jobs) {
           const row = document.createElement("tr");
           const createdCell = document.createElement("td");
           const statusCell = document.createElement("td");
           const progressCell = document.createElement("td");
+          const costCell = document.createElement("td");
           const errorsCell = document.createElement("td");
           const actionCell = document.createElement("td");
 
           createdCell.textContent = formatDate(job.created_at);
           statusCell.textContent = job.status || "-";
           progressCell.textContent = `${job.processed || 0}/${job.total || 0}`;
+          costCell.textContent = formatCurrency(job.cost_total_brl);
           const errors = job.errors || [];
           if (errors.length > 0) {
             const button = document.createElement("button");
@@ -353,7 +369,7 @@
               const errorRow = document.createElement("tr");
               errorRow.className = "history-error-details";
               const errorCell = document.createElement("td");
-              errorCell.colSpan = 5;
+              errorCell.colSpan = 6;
               const list = document.createElement("ul");
               list.className = "history-error-list";
               for (const item of errors) {
@@ -385,6 +401,7 @@
           row.appendChild(createdCell);
           row.appendChild(statusCell);
           row.appendChild(progressCell);
+          row.appendChild(costCell);
           row.appendChild(errorsCell);
           row.appendChild(actionCell);
           historyRows.appendChild(row);
@@ -398,7 +415,7 @@
             throw new Error(await readErrorMessage(response));
           }
           const payload = await response.json();
-          renderBatchHistory(payload.jobs || []);
+          renderBatchHistory(payload.jobs || [], payload.history_cost_total_brl);
         } catch (error) {
           historyStatus.textContent = error.message || "Nao foi possivel carregar o historico.";
           historyStatus.className = "status error";
@@ -480,11 +497,12 @@
           const payload = await response.json();
           renderBatchErrors(payload.errors);
           setBatchStatus(
-            `Status: ${payload.status}. Processados: ${payload.processed}/${payload.total}. Sucessos: ${payload.success}.`,
+            `Status: ${payload.status}. Processados: ${payload.processed}/${payload.total}. Sucessos: ${payload.success}. Custo: ${formatCurrency(payload.cost_total_brl)}.`,
             payload.status === "completed" ? "success" : ""
           );
           batchDownloadButton.classList.toggle("hidden", !payload.download_ready);
           manualStatusButton.classList.remove("hidden");
+          confirmCostButton.classList.toggle("hidden", payload.status !== "pending_confirmation");
 
           if (payload.status === "completed" || payload.status === "failed") {
             stopBatchPolling();
@@ -516,9 +534,10 @@
         const formData = new FormData();
         formData.append("file", file);
         batchButton.disabled = true;
+        confirmCostButton.classList.add("hidden");
         batchDownloadButton.classList.add("hidden");
         manualStatusButton.classList.add("hidden");
-        setBatchStatus("Enviando lote...");
+        setBatchStatus("Calculando custo do lote...");
         renderBatchErrors([]);
         stopBatchPolling();
 
@@ -534,7 +553,34 @@
 
           const payload = await response.json();
           currentBatchJobId = payload.job_id;
-          setBatchStatus("Lote recebido. Processando...");
+          setBatchStatus(
+            `Custo calculado: ${formatCurrency(payload.cost_total_brl)} para ${payload.total} CNPJ(s). Confirme para iniciar o processamento.`
+          );
+          confirmCostButton.classList.remove("hidden");
+          await loadBatchHistory();
+        } catch (error) {
+          currentBatchJobId = "";
+          setBatchStatus(error.message || "Erro ao enviar lote.", "error");
+        } finally {
+          batchButton.disabled = false;
+        }
+      }
+
+      async function confirmBatchCost() {
+        if (!currentBatchJobId) {
+          return;
+        }
+
+        confirmCostButton.disabled = true;
+        setBatchStatus("Custo confirmado. Iniciando processamento...");
+        try {
+          const response = await fetch(`/api/lotes/${currentBatchJobId}/confirmar`, {
+            method: "POST",
+          });
+          if (!response.ok) {
+            throw new Error(await readErrorMessage(response));
+          }
+          confirmCostButton.classList.add("hidden");
           manualStatusButton.classList.remove("hidden");
           const statusPayload = await refreshBatchStatus();
           if (
@@ -546,10 +592,9 @@
           }
           await loadBatchHistory();
         } catch (error) {
-          currentBatchJobId = "";
-          setBatchStatus(error.message || "Erro ao enviar lote.", "error");
+          setBatchStatus(error.message || "Nao foi possivel confirmar o custo.", "error");
         } finally {
-          batchButton.disabled = false;
+          confirmCostButton.disabled = false;
         }
       }
 
@@ -596,6 +641,7 @@
       form.addEventListener("submit", requestPlanilha);
       downloadButton.addEventListener("click", triggerDownload);
       batchForm.addEventListener("submit", submitBatch);
+      confirmCostButton.addEventListener("click", confirmBatchCost);
       batchDownloadButton.addEventListener("click", downloadBatch);
       manualStatusButton.addEventListener("click", refreshBatchStatus);
       refreshHistoryButton.addEventListener("click", loadBatchHistory);
